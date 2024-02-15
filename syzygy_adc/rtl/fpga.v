@@ -22,7 +22,7 @@ module fpga (
 
 	input wire J6_S0_D0P, J6_S2_D0N,    //out1a_p, out1a_n.
     input wire J6_S1_D1P, J6_S3_D1N,    //frame_p, frame_n,
-    input wire J6_S4_D2P, J6_S6_S2N,     //out1b_p, out1b_n,
+    input wire J6_S4_D2P, J6_S6_D2N,     //out1b_p, out1b_n,
     input wire J6_S5_D3P, J6_S7_D3N,     //out2a_p, out2a_m,
     input wire J6_S9_D5P, J6_S11_D5N,    //out2b_p, out2b_n
 
@@ -36,6 +36,24 @@ module fpga (
 	output wire J6_C2P_CLK_N,
 	output wire J6_C2P_CLK_P
 );
+
+//to keep the same signals
+wire syzygy_d0_p = J6_S0_D0P;
+wire syzygy_d0_n = J6_S2_D0N;
+wire syzygy_d1_p = J6_S1_D1P;
+wire syzygy_d1_n = J6_S3_D1N;
+wire syzygy_d2_p = J6_S4_D2P;
+wire syzygy_d2_n = J6_S6_D2N;
+wire syzygy_d3_p = J6_S5_D3P;
+wire syzygy_d3_n = J6_S7_D3N;
+wire syzygy_d5_p = J6_S9_D5P;
+wire syzygy_d5_n = J6_S11_D5N;
+wire syzygy_c2p_clk_p = J6_C2P_CLK_P;
+wire syzygy_c2p_clk_n = J6_C2P_CLK_N;
+wire syzygy_p2c_clk_p = J6_P2C_CLK_P;
+wire syzygy_p2c_clk_n = J6_P2C_CLK_N;
+
+
 
 //set the spi signals as 1, use default settings
 assign J6_S10_D4N =1; 
