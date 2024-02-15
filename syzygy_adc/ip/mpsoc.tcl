@@ -14,7 +14,7 @@ source ../ip/zub1cg_mpsoc.tcl
 #mpsoc clocks generation
 #creating clock 0 
 set_property -dict [list CONFIG.PSU__FPGA_PL0_ENABLE {1}] [get_bd_cells mpsoc]
-set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {125.000000}] [get_bd_cells mpsoc]
+set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100.000000}] [get_bd_cells mpsoc]
 create_bd_net mpsoc_clk0
 connect_bd_net -net mpsoc_clk0 [get_bd_pins mpsoc/pl_clk0]
 create_bd_port -dir O -type clk mpsoc_clk_100

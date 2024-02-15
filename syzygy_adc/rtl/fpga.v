@@ -29,7 +29,7 @@ module fpga (
     input wire  J6_S8_D4P,                //sdo
     output wire J6_S10_D4N,                 //cs_b
     output wire J6_S12_D6P,                 //sclk
-    output wire J1_S14_D6N,                  //sdi
+    output wire J6_S14_D6N,                  //sdi
 
     input wire J6_P2C_CLK_P,
 	input wire J6_P2C_CLK_N,
