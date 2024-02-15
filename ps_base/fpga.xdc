@@ -25,8 +25,6 @@ set_property PACKAGE_PIN A8 [ get_ports button1]
 
 #J2
 
-
-##set the not used pins
 set_property BITSTREAM.CONFIG.UNUSEDPIN PULLUP [current_design]
 set_property BITSTREAM.CONFIG.OVERTEMPSHUTDOWN ENABLE [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]

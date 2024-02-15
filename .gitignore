@@ -1,6 +1,10 @@
 *.pyc
 *.del
 *.pdf
+*.del
+
+*/rev/*
+
 
 ##this are for vivado buildings
 *.jou
