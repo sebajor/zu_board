@@ -32,7 +32,7 @@ module fpga (
     output wire J1_S14_D6N,                  //sdi
 
     input wire J6_P2C_CLK_P,
-	input wire J6_P2C_CLK_P,
+	input wire J6_P2C_CLK_N,
 	output wire J6_C2P_CLK_N,
 	output wire J6_C2P_CLK_P
 );
