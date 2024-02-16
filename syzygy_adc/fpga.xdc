@@ -149,6 +149,10 @@ set_property PACKAGE_PIN H3 [get_ports J6_S27] ;        #HP_SE_02
 set_property PACKAGE_PIN J3 [get_ports J6_C2P_CLK_P] ;  #HP_DP_13_GC_P
 set_property PACKAGE_PIN J2 [get_ports J6_C2P_CLK_N] ;  #HP_DP_13_GC_N
 
+#for this case
+set_property IOSTANDARD LVCMOS18 [get_ports J6_S10_D4N];
+set_property IOSTANDARD LVCMOS18 [get_ports J6_S12_D6P];
+set_property IOSTANDARD LVCMOS18 [get_ports J6_S14_D6N];
 
 
 #micro-e click  1.8V 
