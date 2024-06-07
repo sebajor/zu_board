@@ -26,6 +26,7 @@ axil_bram = {'offset': 0xA0000000,
         }
 
 ##first we are going to program the fpga
+print("Programming FPGA")
 result = subprocess.run(['fpgautil', '-b', filename], capture_output=True)
 if(not 'BIN FILE loaded through FPGA manager successfully' in str(result.stdout)):
     print(result.stdout)
@@ -40,6 +41,7 @@ bram = mmap.mmap(fpga_mem.fileno(), axil_bram['kernel_size'], offset=axil_bram['
 
 
 ##write random stuffs using bram ports
+print("Writing/read bram from axi ports")
 data = np.random.randint(2**31, size=axil_bram['fpga_addr'])
 ##write the data into the bram
 bram[:axil_bram['data_width']*axil_bram['fpga_addr']] = struct.pack(str(axil_bram['fpga_addr'])+axil_bram['data_type'],
@@ -49,8 +51,10 @@ bram[:axil_bram['data_width']*axil_bram['fpga_addr']] = struct.pack(str(axil_bra
 read_data = np.frombuffer(bram[:axil_bram['data_width']*axil_bram['fpga_addr']],dtype=axil_bram['data_type'])
 
 assert (read_data==data).all(), "Error writing/reading from bram interface"
+print("Ok")
 
 ##now we write from the axilite register
+print("Writing bram from FPGA port and reading through the PS")
 reg[axil_reg['data_width']:axil_reg['data_width']*2] = struct.pack(axil_reg['data_type'], 0)   #start at addr0
 reg[axil_reg['data_width']*2:axil_reg['data_width']*3] = struct.pack(axil_reg['data_type'], 1) #enable writing
 
@@ -64,7 +68,7 @@ for i in range(axil_bram['fpga_addr']):
 read_data = np.frombuffer(bram[:axil_bram['data_width']*axil_bram['fpga_addr']],dtype=axil_bram['data_type'])
 
 
-
-
+assert (read_data==data).all(), "Error reading from bram interface or writing from register"
+print("OK")
 
 
