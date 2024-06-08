@@ -378,8 +378,8 @@ wire [7:0] iserdes0_dout0, iserdes0_dout1,
 
 data_phy data_phy_inst0 (
     .sync_rst(sync_rst),
-    .adc_data_p({syzygy_d0_p, syzygy_d3_p}),
-    .adc_data_n({syzygy_d0_n, syzygy_d3_n}),
+    .adc_data_p({syzygy_d0_p, syzygy_d2_p}),
+    .adc_data_n({syzygy_d0_n, syzygy_d2_n}),
     //these signals came from the clock alignment module
     .data_clk_bufio(data_clk_bufio),
     .data_clk_div(data_clk_div),
@@ -393,8 +393,8 @@ data_phy data_phy_inst0 (
 
 data_phy data_phy_inst1 (
     .sync_rst(sync_rst),
-    .adc_data_p({syzygy_d2_p, syzygy_d5_p}),
-    .adc_data_n({syzygy_d2_n, syzygy_d5_n}),
+    .adc_data_p({syzygy_d3_p, syzygy_d5_p}),
+    .adc_data_n({syzygy_d3_n, syzygy_d5_n}),
     //these signals came from the clock alignment module
     .data_clk_bufio(data_clk_bufio),
     .data_clk_div(data_clk_div),
@@ -438,6 +438,12 @@ always@(posedge data_clk_div)begin
         bram_we <= 0;
     end
 end
+
+///by default the adc output has 0 in the bits 0,1.. 
+wire signed [15:0] adc0_out, adc1_out;
+
+assign adc0_out = $signed(adc_data[16-:14]);
+assign adc1_out = $signed(adc_data[16-:14]);
 
 
 axil_bram_unbalanced #(
