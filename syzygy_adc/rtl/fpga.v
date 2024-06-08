@@ -17,7 +17,9 @@
 //`include "xil_primitives.v"
 
 //Top template
-module fpga (
+module fpga #(
+    parameter CAPTURE_ADDR = 10
+)(
     output wire [2:0] led0, led1,
 
 	input wire J6_S0_D0P, J6_S2_D0N,    //out1a_p, out1a_n.
@@ -378,8 +380,8 @@ wire [7:0] iserdes0_dout0, iserdes0_dout1,
 
 data_phy data_phy_inst0 (
     .sync_rst(sync_rst),
-    .adc_data_p({syzygy_d0_p, syzygy_d2_p}),
-    .adc_data_n({syzygy_d0_n, syzygy_d2_n}),
+    .adc_data_p({syzygy_d2_p, syzygy_d0_p}),
+    .adc_data_n({syzygy_d2_n, syzygy_d0_n}),
     //these signals came from the clock alignment module
     .data_clk_bufio(data_clk_bufio),
     .data_clk_div(data_clk_div),
@@ -393,8 +395,8 @@ data_phy data_phy_inst0 (
 
 data_phy data_phy_inst1 (
     .sync_rst(sync_rst),
-    .adc_data_p({syzygy_d3_p, syzygy_d5_p}),
-    .adc_data_n({syzygy_d3_n, syzygy_d5_n}),
+    .adc_data_p({syzygy_d5_p, syzygy_d3_p}),
+    .adc_data_n({syzygy_d5_n, syzygy_d3_n}),
     //these signals came from the clock alignment module
     .data_clk_bufio(data_clk_bufio),
     .data_clk_div(data_clk_div),
@@ -422,11 +424,11 @@ always@(posedge data_clk_div)begin
         capture <= 0;
 end
 
-reg [9:0] bram_addr=0;
+reg [CAPTURE_ADDR:0] bram_addr={(CAPTURE_ADDR+1){1'b1}};
 reg bram_we=0;
 always@(posedge data_clk_div)begin
     if(capture)begin
-        if(bram_addr!=({10{1'b1}}))begin
+        if(bram_addr!=({(CAPTURE_ADDR){1'b1}}))begin
             bram_addr <= bram_addr+1;
             bram_we <=1;
         end
@@ -434,21 +436,20 @@ always@(posedge data_clk_div)begin
             bram_we <=0;
     end
     else begin
-        bram_addr <=0;
+        bram_addr <={(CAPTURE_ADDR+1){1'b1}};
         bram_we <= 0;
     end
 end
 
-///by default the adc output has 0 in the bits 0,1.. 
+///by default the adc output has 0 in the bits 0,1... So I have to check what to do with them 
+// (the data is unsigned, 2comp???)
 wire signed [15:0] adc0_out, adc1_out;
 
-assign adc0_out = $signed(adc_data[16-:14]);
-assign adc1_out = $signed(adc_data[16-:14]);
 
 
 axil_bram_unbalanced #(
 	.FPGA_DATA_WIDTH(32),
-	.FPGA_ADDR_WIDTH(10),
+	.FPGA_ADDR_WIDTH(CAPTURE_ADDR),
 	.AXI_DATA_WIDTH(32)
 ) axil_bram_inst0 (
 	.fpga_clk(data_clk_div),
