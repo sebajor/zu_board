@@ -1,4 +1,4 @@
-`default_nettype none
+//default_nettype none
 
 //if there are no external interface for the registers the compiler 
 //uses block rams to create the axi_reg, if there is an external reg
@@ -8,13 +8,19 @@ module s_axil_reg #(
     parameter DATA_WIDTH = 32,
     parameter ADDR_WIDTH = 10
 ) (
-    //custon signals
-    output wire [DATA_WIDTH-1:0] dft_delay_line,
-    output wire [DATA_WIDTH-1:0] acc_len,
-    output wire cnt_rst, 
-    output wire snapshot_trigger,
+    //user signals
+    output wire reset,
+    output wire enable_adc,
+    output wire enable_bram,
+    output wire enable_correlator,
+    output wire [31:0] delay_line,
+    output wire [31:0] acc_len,
 
-
+    input wire [3:0] bitslip_count,
+    input wire mmcm_locked,
+    input wire clk_align_frame_valid,
+    
+    //
     input wire axi_clock, 
     input wire rst, 
     //write address channel
@@ -206,7 +212,8 @@ end
 //write the data into the registers
 //if you want to write into a register you have to add a condition here
 always@(posedge axi_clock)begin
-    if(~write_resp_stall & valid_write_addr & valid_write_data) begin
+    axi_reg[1] <= {mmcm_locked, clk_align_frame_valid, bitslip_count};
+    if((~write_resp_stall & valid_write_addr & valid_write_data)& (waddr!=1)) begin
         if(wstrb[0])
             axi_reg[waddr][7:0] <= wdata[7:0];
         if(wstrb[1])
@@ -230,5 +237,11 @@ end
 
 //you could make visible some register creating an output port
 
+assign reset= axi_reg[0][0];
+assign enable_adc = axi_reg[0][1];
+assign enable_bram= axi_reg[0][2];
+assign enable_correlator = axi_reg[0][3];
+assign acc_len = axi_reg[2];
+assign delay_line = axi_reg[3];
 
 endmodule

@@ -1,4 +1,4 @@
-`default_nettype none 
+//default_nettype none 
 
 module axil_bram_arbiter #(
     parameter DATA_WIDTH = 32,

@@ -1,4 +1,4 @@
-`default_nettype none
+//default_nettype none
 
 /*  Take care, this module dont support full-duplex and dont handle 
 collision so you need to take care to only request write or read but not both.

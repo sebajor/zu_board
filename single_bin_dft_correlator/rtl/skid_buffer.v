@@ -1,4 +1,4 @@
-`default_nettype none
+//default_nettype none
 
 module skid_buffer #(
     parameter DIN_WIDTH = 32

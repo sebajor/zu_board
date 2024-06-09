@@ -1,4 +1,4 @@
-`default_nettype none
+//default_nettype none
 
 /*
     unbalanced ram where the data size of the PORT1 is bigger than the 

@@ -1,4 +1,4 @@
-`default_nettype none
+//default_nettype none
 
 module axil_bram_unbalanced #(
     parameter FPGA_DATA_WIDTH = 64,
