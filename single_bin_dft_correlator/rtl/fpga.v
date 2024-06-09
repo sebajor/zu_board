@@ -9,7 +9,7 @@ module fpga #(
     parameter DIN_POINT = 13,
     parameter TWIDD_WIDTH = 16,
     parameter TWIDD_POINT = 14,
-    parameter TWIDD_FILE = "twidd_init.bin",
+    parameter TWIDD_FILE = "rtl/twidd_init.bin",
     parameter TWIDD_DELAY = 1,
     parameter ACC_DELAY = 0,
     parameter DFT_LEN = 1024,
