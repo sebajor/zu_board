@@ -453,7 +453,7 @@ end
 wire signed [13:0] adc0_signed, adc1_signed;
 
 assign adc0_signed = {~adc0_data[15], adc0_data[14:2]};
-assign adc1_signed = {~adc0_data[15], adc0_data[14:2]};
+assign adc1_signed = {~adc1_data[15], adc1_data[14:2]};
 
 wire signed [15:0] adc0_bram = $signed(adc0_signed);
 wire signed [15:0] adc1_bram = $signed(adc1_signed);

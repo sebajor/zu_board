@@ -27,7 +27,6 @@ SYN_FILES += rtl/shift.v
 SYN_FILES += rtl/signed_cast.v
 SYN_FILES += rtl/single_bin_fx_correlator.v
 SYN_FILES += rtl/skid_buffer.v
-SYN_FILES += rtl/system_wrapper.v
 SYN_FILES += rtl/unbalanced_ram.v
 SYN_FILES += rtl/unsign_cast.v
 
