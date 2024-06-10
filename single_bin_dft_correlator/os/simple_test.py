@@ -3,6 +3,16 @@ import subprocess
 import time
 import numpy as np
 
+def write_twiddle_factors(dft_len, k, twidd_binpt):
+    n = np.arange(dft_len)
+    twidd = np.exp(-1j*2*np.pi*n*k/dft_len)
+    aux = np.array([twidd.real, twidd.imag]).T.flatten()   #check order !!! im is the low, re is high
+    aux = (aux*2**twidd_binpt).astype(int)
+    aux_bin = struct.pack(str(2*dft_len)+'i', *(aux))
+    aux2 = struct.unpack(str(2*dft_len)+'I', aux_bin)
+    return aux2
+
+
 ###
 ### Just to test the signed conversion of the data that goes into the fpga
 ###
@@ -23,12 +33,13 @@ axil_reg = { 'offset': 0xA0008000,
 ##      0: reset
 ##      1:enable_adc
 ##      2:enable_bram
+##      3:enable_correlator
 ## axil_reg[1]:
 ##      0-3:bitslip
 ##      4: clk_align_frame_valid
 ##      5:mmcm_locked
-##      
-
+## axil_reg[2]: acc_len
+## axil_reg[3]: delay_line
 
 ##M00: adc data
 ##M01: axil reg
@@ -90,6 +101,6 @@ time.sleep(0.5)
 data = np.frombuffer(bram_adc[:adc_bram['fpga_addr']*adc_bram['data_width']], 'h')
 #adc0 = data[::2]
 #adc1 = data[1::2]
-
 np.savetxt('data',data)
+
 
