@@ -487,8 +487,12 @@ axil_bram_unbalanced #(
 //The first 2 bits are zeros and we
 wire signed [13:0] adc0_signed, adc1_signed;
 
-assign adc0_signed = {~adc0_data[13], adc0_data[12:0]};
-assign adc1_signed = {~adc1_data[13], adc1_data[12:0]};
+//assign adc0_signed = {~adc0_data[13], adc0_data[12:0]};
+//assign adc1_signed = {~adc1_data[13], adc1_data[12:0]};
+
+assign adc0_signed = {~adc0_data[15], adc0_data[14:2]};
+assign adc1_signed = {~adc0_data[15], adc0_data[14:2]};
+
 
 wire [CORR_DOUT_WIDTH-1:0] aa, bb;
 wire signed [CORR_DOUT_WIDTH-1:0] ab_re, ab_im;
