@@ -275,6 +275,9 @@ wire enable_bram;
 wire enable_correlator;
 wire [31:0] delay_line, acc_len;
 
+wire correlator_ack;
+
+
 s_axil_reg #(
 	.DATA_WIDTH(32),
 	.ADDR_WIDTH(4)
@@ -292,6 +295,18 @@ s_axil_reg #(
     .bitslip_count(bitslip_count),
     .mmcm_locked(mmcm_locked),
     .clk_align_frame_valid(clk_align_frame_valid),
+   //ok signals and data from the correlator
+    .correlator_valid(corr_data_available),
+    .correlator_ack_error(corr_ack_error),
+    .correlator_ack(correlator_ack),
+    .pow0_0(pow0_0),
+    .pow0_1(pow0_1), 
+    .pow1_0(pow1_0), 
+    .pow1_1(pow1_1),
+    .ab_real_0(ab_real_0),
+    .ab_real_1(ab_real_1),
+    .ab_imag_0(ab_imag_0),
+    .ab_imag_1(ab_imag_1),
     //axi interface
 	.s_axil_araddr(HPM0_FPD_M01_axil_araddr),
 	.s_axil_arprot(HPM0_FPD_M01_axil_arprot),
@@ -353,9 +368,12 @@ always@(posedge mpsoc_clk_100) begin
     data_valid_r <= clk_align_frame_valid;
 end
 
-assign led0[0] = bitslip_count_r;
-assign led0[1] = mmcm_locked_r;
-assign led1[0] = data_valid_r;
+//assign led0[0] = bitslip_count_r;
+//assign led0[1] = mmcm_locked_r;
+//assign led1[0] = data_valid_r;
+//
+assign led0[0] = corr_data_available;
+assign led1[1] = corr_ack_error;
 
 clock_alignment #(
     .ADC_BITS(14),
@@ -413,6 +431,10 @@ data_phy data_phy_inst1 (
     .iserdes0_dout(iserdes0_dout1),
     .iserdes1_dout(iserdes1_dout1)
 );
+
+
+
+
 
 
 //logic to capture adc data
@@ -476,7 +498,7 @@ axil_bram_unbalanced #(
 	.s_axil_awaddr(HPM0_FPD_M00_axil_awaddr),
 	.s_axil_awprot(HPM0_FPD_M00_axil_awprot),
 	.s_axil_awready(HPM0_FPD_M00_axil_awready),
-	.s_axil_awvalid(HPM0_FPD_M00_axil_awvalid),
+.s_axil_awvalid(HPM0_FPD_M00_axil_awvalid),
 	.s_axil_bready(HPM0_FPD_M00_axil_bready),
 	.s_axil_bresp(HPM0_FPD_M00_axil_bresp),
 	.s_axil_bvalid(HPM0_FPD_M00_axil_bvalid),
@@ -554,6 +576,64 @@ single_bin_fx_correlator #(
     .s_axil_rready(HPM0_FPD_M02_axil_rready)
 );
 
+//This is a simple logic that takes the data and write it into a axi-lite reg
+
+//clock domain crossing
+wire [63:0] aa_axi, bb_axi, ab_re_axi, ab_im_axi;
+wire corr_valid_axi;
+delay #(
+    .DATA_WIDTH(64*4+1),
+    .DELAY_VALUE(3)
+) synchronizer (
+    .clk(mpsoc_clk_100),
+    .din({aa,bb,ab_re,ab_im,corr_dout_valid}),
+    .dout({aa_axi, bb_axi, ab_re_axi, ab_im_axi, corr_valid_axi})
+);
+
+
+reg corr_data_available = 0;    //data present flag
+reg corr_ack_error = 0;
+reg [31:0] pow0_0=0, pow0_1=0;
+reg [31:0] pow1_0=0, pow1_1=0;
+reg [31:0] ab_real_0=0, ab_real_1=0;
+reg [31:0] ab_imag_0=0, ab_imag_1=0;
+reg correlator_ack_r =0;    //to detect rising edges
+
+always@(posedge mpsoc_clk_100)begin
+    correlator_ack_r <= correlator_ack;
+    if(reset)begin
+        corr_data_available <= 0;
+        corr_ack_error <= 0;
+    end
+    else if(~corr_data_available)begin
+        if(corr_valid_axi)begin
+            corr_data_available <= 1; 
+            pow0_0 <= aa_axi[0+:32];
+            pow0_1 <= aa_axi[32+:32];
+            pow1_0 <= bb_axi[0+:32];
+            pow1_1 <= bb_axi[32+:32];
+            ab_real_0 <= ab_re_axi[0+:32];
+            ab_real_1 <= ab_re_axi[32+:32];
+            ab_imag_0 <= ab_im_axi[0+:32];
+            ab_imag_1 <= ab_im_axi[32+:32];
+        end
+    end
+    else if(corr_data_available)begin
+        if(corr_valid_axi)
+            corr_ack_error <= 1;
+        else if(correlator_ack & ~correlator_ack_r)
+            corr_data_available <= 0;
+    end
+end
+
+
+
+
+
+
+
+//In this case the system is writing continously a bram.. it takes ages to
+//write the complete bram
 
 reg [9:0] bram_counter = 0;
 always@(posedge data_clk_div)begin

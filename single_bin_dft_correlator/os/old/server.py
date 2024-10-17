@@ -2,13 +2,19 @@ import mmap, struct
 import subprocess
 import time
 import numpy as np
+import socket
+import datetime
 
 ##hyperparameters
-filename = '/home/root/bitfiles/adc_test/fpga.bin'
+binfile= '/home/root/bitfiles/correlator_1bin/fpga.bin'
 dev_mem_file = '/dev/mem'
 ip = '192.168.7.2'
 port = 1234
 
+dft_size = 1024
+k = 102
+acc_len = 10
+twidd_pt = 14
 
 axil_reg = { 'offset': 0xA0008000,
              'kernel_size': 32*2**10,   #32k
@@ -45,7 +51,7 @@ corr_bram=  {'offset': 0xA0020000,
              'data_type': 'i'
                      }
 
-registers = [axil_reg, adc_bram. twiddle_factors, power_bram, corr_bram]
+registers = [axil_reg, adc_bram, twiddle_factors, power_bram, corr_bram]
 
 ## axil_reg[0]:
 ##      0: reset
@@ -106,7 +112,7 @@ class single_bin_correlator():
         self.power_info = registers[3]
         self.corr_info = registers[4]
         print("Programming FPGA")
-        result = subprocess.run(['fpgautil', '-b', filename], capture_output=True)
+        result = subprocess.run(['fpgautil', '-b', binfile], capture_output=True)
         print(result.stdout)
         if(not 'BIN FILE loaded through FPGA manager successfully' in str(result.stdout)):
             exit 
@@ -129,12 +135,12 @@ class single_bin_correlator():
     def close(self):
         self.fpga_mem.close()
     
-    def get_snapshot(self, __sleep=0.1):
+    def get_snapshot(self, _sleep=0.1):
         ##read the previous value
-        prev = struct.unpack(self.axil_reg_info['data_type'], axil_reg[0])
-        msg = clear_bit(prev, 3)
+        prev = struct.unpack(self.axil_reg_info['data_type'], self.reg[:4])[0]
+        msg = clear_bit(prev, 2)
         self.reg[0:4] = struct.pack(self.axil_reg_info['data_type'], msg)
-        msg = set_bit(prev, 3)
+        msg = set_bit(prev, 2)
         self.reg[0:4] = struct.pack(self.axil_reg_info['data_type'], msg)
         ##make a rising edge in the enable bit
         time.sleep(_sleep)
@@ -152,23 +158,26 @@ class single_bin_correlator():
         self.reg[3*4:4*4] = struct.pack(self.axil_reg_info['data_type'], dft_len)
 
 
-    def get_power(self, parse=True):
+    def get_power(self):
         data = self.power_bram[:self.power_info['fpga_addr']*self.power_info['data_width']]
-        if(parse):
-            data = np.frombuffer(data, self.power_info['data_type'])
-        return data 
+        data = np.frombuffer(data, self.power_info['data_type'])
+        power0 = data[::2]
+        power1 = data[1::2]
+        return power0, power1
+
 
     def get_corr(self):
         data = self.corr_bram[:self.corr_info['fpga_addr']*self.corr_info['data_width']]
-        if(parse):
-            data = np.frombuffer(data, self.corr_info['data_type'])
-        return data 
+        data = np.frombuffer(data, self.corr_info['data_type'])
+        corr_re = data[::2]
+        corr_im = data[1::2]
+        return corr_re, corr_im
 
     def compute_twiddle_factors(self, dft_len, k):
         n = np.arange(dft_len)
         twidd = np.exp(-1j*2*np.pi*n*k/dft_len)
         return twidd
-        
+
 
     def configure_correlator(self, dft_len, k, twidd_binpt):
         ##first check that the dft len is less than the max value
@@ -180,8 +189,14 @@ class single_bin_correlator():
         aux = (aux*2**twidd_binpt).astype(int)
         aux_bin = struct.pack(str(2*dft_len)+'i', *(aux))
         aux2 = struct.unpack(str(2*dft_len)+'I', aux_bin)
-        self.twiddle_bram[:4*len(2*dft_len))] = aux2
+        self.twiddle_bram[:4*2*dft_len] = aux_bin
         self.set_dft_len(int(dft_len-1))
+
+    def enable_correlator(self):
+        prev = struct.unpack(self.axil_reg_info['data_type'], self.reg[:4])[0]
+        msg = set_bit(prev, 3)
+        self.reg[0:4] = struct.pack(self.axil_reg_info['data_type'], msg)
+        
 
 
 
@@ -190,6 +205,24 @@ def get_snapshot(fpga_intf, param):
     adc0, adc1 = fpga_intf.get_snapshot()
     return adc0.tobytes()+adc1.tobytes()
 
+def get_power(fpga_intf, param):
+    power0,power1 = fpga_intf.get_power()
+    return power0.tobytes()+power1.tobytes()
+
+def get_corr(fpga_intf, param):
+    corr_re, corr_im = fpga_intf.get_corr()
+    return corr_re.tobytes()+corr_im.tobytes()
+
+def config_correlator(fpga_intf, param):
+    values = [int(x) for x in param.split(" ")[1].split(',')]
+    fpga_intf.configure_correlator(values[0], values[1], values[2])
+    return "ok".encode()
+    
+def set_accumulation(fpga_intr, param):
+    value = int(param.split(' ')[1])
+    fpga_intf.set_acc_len(value)
+    return "ok".encode()
+
 
 def timestamp():
     return ("%s\n"%(datetime.datetime.now())).replace(" ","T")
@@ -197,8 +230,11 @@ def timestamp():
 ## SCPI_cmd, function, last_value_requested, timestamp from previous cmd
 SCPI_prefix = 'ZUBOARD:'
 SCPI = [
-        [SCPI_prefix+"GET_SNAPSHOT",      get_snapshot],
-        [SCPI_prefix+"GET_POWER", get_power]
+        [SCPI_prefix+"GET_SNAPSHOT",        get_snapshot],
+        [SCPI_prefix+"GET_POWER",           get_power],
+        [SCPI_prefix+"GET_CORR",            get_corr],
+        [SCPI_prefix+"CONFIG_CORRELATOR",   config_correlator],
+        [SCPI_prefix+"SET_ACC",             set_accumulation]
         ]
  
 
@@ -222,7 +258,10 @@ def execute_command(cmd, fpga_intf):
 
 
 if __name__ == '__main__':
-    fpga_intf = adc_snapshot(filename, dev_mem_file, axil_reg, adc_bram)
+    fpga_intf = single_bin_correlator(binfile, dev_mem_file, registers)
+    fpga_intf.set_acc_len(acc_len)
+    fpga_intf.configure_correlator(dft_size, k, twidd_pt)
+    fpga_intf.enable_correlator()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((ip, port))
     while(1):
@@ -234,8 +273,4 @@ if __name__ == '__main__':
         except KeyboardInterrupt:
             fpga_intf.close()
             sock.close()
-
-     
-     
-
 

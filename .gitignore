@@ -2,6 +2,9 @@
 *.del
 *.pdf
 *.del
+build/
+*.npz
+*.bof
 
 */rev/*
 
@@ -39,12 +42,15 @@
 *.tcf
 *.wdb
 *.fst
+*.xpr
 
-*/vivado.cache/
-*/vivado.hw/
-*/vivado.ip_user_files/
-*/vivado.runs/
-*/vivado.sim/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.gen/
+*.srcs/
 
 ## checkpoint files
 *.dcp
