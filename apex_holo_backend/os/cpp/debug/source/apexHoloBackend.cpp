@@ -1,5 +1,6 @@
 #include "../includes/apexHoloBackend.h"
 #include <iostream>
+#include <cstdlib>
 #include <sys/mman.h>
 #include <string>
 #include <fcntl.h>  //aliases for the protection flags
@@ -7,6 +8,7 @@
 #include <stdint.h>
 #include <cmath>
 #include <complex>
+#include <string.h>
 #include <unistd.h> //open, close
 
 
@@ -50,6 +52,10 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
 
     //get the mmap focused in the register..
     //TODO: program the FPGA before doing this!!!
+    char helper[] = "fpgautil -b ";
+    if(system(strcat(helper ,binfile.c_str()))){
+            std::cout << "Problem programming the FPGA!!!\n";
+            }
 
     mem_fd = open(dev_mem.c_str(), O_RDWR);
     if(mem_fd==-1){
