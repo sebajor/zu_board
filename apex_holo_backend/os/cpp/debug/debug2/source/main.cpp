@@ -43,24 +43,11 @@ const std::string dev_mem {"/dev/mem"};
 
 //network parameters
 //std::string_view ip {"192.168.7.2"};
-std::string_view ip {"10.0.6.229"};
-int port_cmd {12234}, port_data {12235};
+std::string_view ip {"10.0.6.219"};
+int port_cmd {1234}, port_data {12235};
+std::vector<int> sock_index {0};
 
 int recv_len {128};
-
-//scpi commands
-//scpi commands
-std::vector<std::string_view> scpi_cmds {
-    "HOLO:ZUBOARD:SET_ACC",
-    "HOLO:ZUBOARD:GET_REG",
-    "HOLO:ZUBOARD:GET_SNAPSHOT",
-    "HOLO:ZUBOARD:ENABLE_CORR",
-    "HOLO:ZUBOARD:DISABLE_CORR",
-    "HOLO:ZUBOARD:SET_DFT_SIZE",
-    "HOLO:ZUBOARD:SET_TWIDDLE",
-};
-
-
 
 //send message size
 const int send_msg_size = 4;
@@ -140,84 +127,15 @@ int main(){
     fpga.upload_twiddle_factors(dft_size, k, twiddle_point); 
     std::cout << "enabling correlator\n";
     
-    //cmds server
-    SCPI_server cmd_serv(ip, port_cmd);
-    std::vector<int> socket_index {0};
-    int recv_size {0};
-    std::vector<char> recv_buffer(recv_len);
-    std::string recv_msg {};
-    std::string out_msg {"No cmd found\n"};
-    float arg = -1;
-    int func_index = -1;
-
     //data_thread(fpga);
     std::thread t_data(data_thread, std::ref(fpga));
-
     
-    //mut.lock();
-    //fpga.enable_correlator();
-    //data_flag = 1;
-    //mut.unlock();
+    mut.lock();
+    fpga.enable_correlator();
+    data_flag = 1;
+    mut.unlock();
     while(1){
-        cmd_serv.TcpServer::checkClientAvailable(socket_index);
-        for(int i=socket_index.size()-1; i>-1; --i){
-            recv_size = cmd_serv.TcpServer::recvSocketData<char>(recv_buffer, recv_len,
-                    socket_index[i]);
-            recv_msg = recv_buffer.data();
-            func_index = cmd_serv.parse_recv_msg(recv_msg, arg, scpi_cmds);
-            std::cout << "arg recv "<< arg<< "\n";
-            switch(func_index){
-                case 0:{//set acc
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.set_accumulation(static_cast<int>(arg));
-                        mut.unlock();
-                        acc_len = static_cast<int>(arg);
-                    }
-                    break;
-                }
-                case 1:{
-                    //get register; TODO
-                    break;
-                }
-                case 2:{
-                    //get snapshot; TODO
-                    break;
-                }
-                case 3:{//enable corr
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.enable_correlator();
-                        data_flag = 1;
-                        mut.unlock();
-                    }
-                    break;
-                }
-                case 4:{//disable corr
-                    if(data_flag==1)
-                        data_flag =0;
-                    break;
-                }
-                case 5:{//set dft
-                    if(data_flag==0){
-                         mut.lock();
-                         fpga.set_dft_len(static_cast<int>(arg));
-                         mut.unlock();
-                         dft_size = static_cast<int>(arg);
-                    }
-                    break;
-                }
-                case 6:{
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.upload_twiddle_factors(dft_size, static_cast<int>(arg), twiddle_point);
-                        mut.unlock();
-                    }
-                }
-            }
-
-
-        }
+	
     }
     /*
     while(1){

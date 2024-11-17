@@ -154,8 +154,8 @@ int apexHoloBackend::check_ack_error(){
 };
 int apexHoloBackend::acknowledge_data(){
     uint32_t prev = static_cast<uint32_t>(*(axil_reg_intf));
-    *(axil_reg_intf) = static_cast<int>(prev | 0b1000);
-    *(axil_reg_intf) = static_cast<int>(prev & ~static_cast<uint32_t>(0b1000)); //check this!!
+    *(axil_reg_intf) = static_cast<int>(prev | 0b10000);
+    *(axil_reg_intf) = static_cast<int>(prev & ~static_cast<uint32_t>(0b10000)); //check this!!
     return 0;
 };
 
@@ -171,7 +171,8 @@ int apexHoloBackend::get_register_data(std::array<float, 4> &read_values){
     for(int i=0; i<4; ++i){
         low = *(axil_reg_intf+base+2*i);
         high = *(axil_reg_intf+base+2*i+1);
-        value = static_cast<uint64_t>(low)+(static_cast<uint64_t>(high)<<32);
+        //value = static_cast<uint64_t>(low)+(static_cast<uint64_t>(high)<<32);
+        value = (static_cast<int64_t>(high)<<32) | static_cast<int64_t>(low);
         read_values[i] = static_cast<float>(value);
     }
     return 1;
