@@ -7,10 +7,12 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <iomanip>	//just to print with full presicion
 
 
 //fpga initial parameters
-int acc_len {16384};
+int acc_len {16384*3};		//aprox 0.5s = 3*16384*dft_size/(100*1e6)
+//int acc_len {16384};		//aprox 0.125s
 int k {102};
 int dft_size {1024};
 const int twiddle_point {14};
@@ -43,7 +45,7 @@ const std::string dev_mem {"/dev/mem"};
 
 //network parameters
 //std::string_view ip {"192.168.7.2"};
-std::string_view ip {"10.0.6.229"};
+std::string_view ip {"0.0.0.0"};
 int port_cmd {12234}, port_data {12235};
 
 int recv_len {128};
@@ -74,13 +76,12 @@ void data_thread(apexHoloBackend &fpga){
     TcpServer data_serv(ip, port_data);
     std::vector<int> sock_index {};
     std::vector<char> recv_buffer {0};
-    int acc_len {128};
     recv_buffer.reserve(recv_len);
     int recv_size {0};
     int64_t stamp {0};
 
-    std::array<float, 4> read_data;
-    std::vector<float> send_msg(send_msg_size*5);// = {0};
+    std::array<double, 4> read_data;
+    std::vector<double> send_msg(send_msg_size*5);// = {0};
     //send_msg.reserve(send_msg_size*4);
     std::cout << send_msg_size << " " << send_msg.size() << "\n";
     int msg_words = 0;
@@ -103,18 +104,18 @@ void data_thread(apexHoloBackend &fpga){
                     send_msg[i+msg_words*5] = read_data[i];
 		    //std::cout << read_data[i] << " ";
                 }
-		send_msg[4+msg_words*5] = static_cast<float>(stamp);
+		send_msg[4+msg_words*5] = static_cast<double>(stamp)/1e6;
 		//std::cout << "\n";
                 msg_words+=1;
                 if(msg_words==(send_msg_size)){
 		    std::cout << "debug print\n";
 		    for(int j=0; j<send_msg.size(); ++j)
-		        std::cout << send_msg[j] << " ";
+		        std::cout << std::setprecision(15) << send_msg[j] << " ";
 		    std::cout << "\n";
                     
 		    std::cout << "sending data\n";
                     for(int j=1; j< data_serv.fds.size(); ++j){
-                        data_serv.sendSocketData<float>(send_msg, j);
+                        data_serv.sendSocketData<double>(send_msg, j);
                     }
 		    msg_words=0;
                 }
@@ -128,7 +129,7 @@ void data_thread(apexHoloBackend &fpga){
 
 
 int main(){
-    std::array<float, 4> read_data {};
+    std::array<double, 4> read_data {};
     std::cout << "creating fpga obj\n";
     apexHoloBackend fpga = apexHoloBackend(binfile, dev_mem, 
             axil_reg, axil_bram, snapshot_bram);
@@ -163,11 +164,6 @@ int main(){
         for(int i=socket_index.size()-1; i>-1; --i){
             recv_size = cmd_serv.TcpServer::recvSocketData<char>(recv_buffer, recv_len,
                     socket_index[i]);
-            if((recv_size==0) | (recv_size==-1)){
-                //if the recv_size==0 then the socket is disconnected,
-                //if -1 there was an error
-                continue;
-            }
             recv_msg = recv_buffer.data();
             func_index = cmd_serv.parse_recv_msg(recv_msg, arg, scpi_cmds);
             std::cout << "arg recv "<< arg<< "\n";
@@ -219,6 +215,10 @@ int main(){
                         mut.unlock();
                     }
                 }
+                default:{
+                    std::cout << "non know message\n";
+                    break;
+                        }
             }
 
 

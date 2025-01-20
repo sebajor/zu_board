@@ -18,7 +18,7 @@
 
 //Top template
 module fpga #(
-    parameter CAPTURE_ADDR = 10
+    parameter CAPTURE_ADDR = 16
 )(
     output wire [2:0] led0, led1,
 

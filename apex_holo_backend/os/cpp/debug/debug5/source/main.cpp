@@ -7,10 +7,12 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <iomanip>	//just to print with full presicion
 
 
 //fpga initial parameters
-int acc_len {16384};
+int acc_len {16384*3};		//aprox 0.5s = 3*16384*dft_size/(100*1e6)
+//int acc_len {16384};		//aprox 0.125s
 int k {102};
 int dft_size {1024};
 const int twiddle_point {14};
@@ -43,12 +45,11 @@ const std::string dev_mem {"/dev/mem"};
 
 //network parameters
 //std::string_view ip {"192.168.7.2"};
-std::string_view ip {"10.0.6.229"};
+std::string_view ip {"0.0.0.0"};
 int port_cmd {12234}, port_data {12235};
 
 int recv_len {128};
 
-//scpi commands
 //scpi commands
 std::vector<std::string_view> scpi_cmds {
     "HOLO:ZUBOARD:SET_ACC",
@@ -59,8 +60,6 @@ std::vector<std::string_view> scpi_cmds {
     "HOLO:ZUBOARD:SET_DFT_SIZE",
     "HOLO:ZUBOARD:SET_TWIDDLE",
 };
-
-
 
 //send message size
 const int send_msg_size = 4;
@@ -74,13 +73,12 @@ void data_thread(apexHoloBackend &fpga){
     TcpServer data_serv(ip, port_data);
     std::vector<int> sock_index {};
     std::vector<char> recv_buffer {0};
-    int acc_len {128};
     recv_buffer.reserve(recv_len);
     int recv_size {0};
     int64_t stamp {0};
 
-    std::array<float, 4> read_data;
-    std::vector<float> send_msg(send_msg_size*5);// = {0};
+    std::array<double, 4> read_data;
+    std::vector<double> send_msg(send_msg_size*5);// = {0};
     //send_msg.reserve(send_msg_size*4);
     std::cout << send_msg_size << " " << send_msg.size() << "\n";
     int msg_words = 0;
@@ -103,18 +101,18 @@ void data_thread(apexHoloBackend &fpga){
                     send_msg[i+msg_words*5] = read_data[i];
 		    //std::cout << read_data[i] << " ";
                 }
-		send_msg[4+msg_words*5] = static_cast<float>(stamp);
+		send_msg[4+msg_words*5] = static_cast<double>(stamp)/1e6;
 		//std::cout << "\n";
                 msg_words+=1;
                 if(msg_words==(send_msg_size)){
 		    std::cout << "debug print\n";
 		    for(int j=0; j<send_msg.size(); ++j)
-		        std::cout << send_msg[j] << " ";
+		        std::cout << std::setprecision(15) << send_msg[j] << " ";
 		    std::cout << "\n";
                     
 		    std::cout << "sending data\n";
                     for(int j=1; j< data_serv.fds.size(); ++j){
-                        data_serv.sendSocketData<float>(send_msg, j);
+                        data_serv.sendSocketData<double>(send_msg, j);
                     }
 		    msg_words=0;
                 }
@@ -128,7 +126,8 @@ void data_thread(apexHoloBackend &fpga){
 
 
 int main(){
-    std::array<float, 4> read_data {};
+    std::array<double, 4> read_data {};
+    std::array<int16_t, SNAPSHOT_SAMPLES> adc0, adc1;
     std::cout << "creating fpga obj\n";
     apexHoloBackend fpga = apexHoloBackend(binfile, dev_mem, 
             axil_reg, axil_bram, snapshot_bram);
@@ -163,11 +162,6 @@ int main(){
         for(int i=socket_index.size()-1; i>-1; --i){
             recv_size = cmd_serv.TcpServer::recvSocketData<char>(recv_buffer, recv_len,
                     socket_index[i]);
-            if((recv_size==0) | (recv_size==-1)){
-                //if the recv_size==0 then the socket is disconnected,
-                //if -1 there was an error
-                continue;
-            }
             recv_msg = recv_buffer.data();
             func_index = cmd_serv.parse_recv_msg(recv_msg, arg, scpi_cmds);
             std::cout << "arg recv "<< arg<< "\n";
@@ -187,6 +181,11 @@ int main(){
                 }
                 case 2:{
                     //get snapshot; TODO
+                    mut.lock();
+                    fpga.get_snapshot(adc0, adc1);
+                    cmd_serv.TcpServer::sendSocketData<int16_t, SNAPSHOT_SAMPLES>(adc0, i);
+                    cmd_serv.TcpServer::sendSocketData<int16_t, SNAPSHOT_SAMPLES>(adc1, i);
+                    mut.unlock();
                     break;
                 }
                 case 3:{//enable corr
@@ -199,8 +198,10 @@ int main(){
                     break;
                 }
                 case 4:{//disable corr
+                    mut.lock();
                     if(data_flag==1)
                         data_flag =0;
+                    mut.lock();
                     break;
                 }
                 case 5:{//set dft
@@ -218,24 +219,16 @@ int main(){
                         fpga.upload_twiddle_factors(dft_size, static_cast<int>(arg), twiddle_point);
                         mut.unlock();
                     }
+                    break;
+
                 }
-            }
-
-
-        }
-    }
-    /*
-    while(1){
-        if(fpga.check_data_available()){
-            fpga.get_register_data(read_data);
-            fpga.acknowledge_data();
-            std::cout << "data available, erorr:"<< fpga.check_ack_error() << "\n";
-            for(int i=0; i< read_data.size(); ++i){
-                std::cout << read_data[i] <<"\n";
+                default:{
+                    std::cout << "non know message\n";
+                    break;
+                        }
             }
         }
     }
-    */
     std::cout << "asdqwkeq\n";
     return 1;
 }
