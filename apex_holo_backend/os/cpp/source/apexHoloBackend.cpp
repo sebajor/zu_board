@@ -10,6 +10,8 @@
 #include <complex>
 #include <string.h>
 #include <unistd.h> //open, close
+#include <thread>
+#include <chrono>
 
 
 // axil_reg[0]:
@@ -110,32 +112,34 @@ apexHoloBackend::~apexHoloBackend(){
 
 int apexHoloBackend::set_accumulation(int acc_len){
     *(axil_reg_intf+1) = acc_len;
+    this->accumulation = acc_len;
     return (*(axil_reg_intf+1) != acc_len);
 }
 
-int apexHoloBackend::set_dft_len(int dft_len){
-    *(axil_reg_intf+2) = dft_len;
-    return (*(axil_reg_intf+2) != dft_len);
+int apexHoloBackend::set_dft_len(int dft_size){
+    *(axil_reg_intf+2) = dft_size;
+    this->dft_len = dft_size;
+    return (*(axil_reg_intf+2) != dft_size);
 }
 
 int apexHoloBackend::upload_twiddle_factors(
-        int dft_len, 
         int k, 
         int twiddle_point
         ){
-    if(dft_len>MAX_DFT_SIZE)
+    if(this->dft_len>MAX_DFT_SIZE)
         return 1;
     std::complex <float> freq(0,0);
     const std::complex <float> j(0,1);
     //std::cout <<"dft_len:"<< dft_len << "\n";
     std::complex<double> a {0};
-    for(int i=0; i<dft_len; ++i){
-        freq.real(2*M_PI*k*i/dft_len);
+    for(int i=0; i<this->dft_len; ++i){
+        freq.real(2*M_PI*k*i/this->dft_len);
         a  = std::exp(-j*freq);
         a *= pow(2, twiddle_point);
         *(axil_bram_intf+2*i) =  static_cast<int32_t>(a.imag());
         *(axil_bram_intf+2*i+1) = static_cast<int32_t>(a.real());
     }
+    this->twiddle_number = k;
     return 0;
 }
 
@@ -164,21 +168,29 @@ int apexHoloBackend::acknowledge_data(){
     return 0;
 };
 
-int apexHoloBackend::get_register_data(std::array<float, 4> &read_values){
+int apexHoloBackend::get_register_data(std::array<uint64_t, 4> &read_values){
     /* When saving the data in an axilite register it uses a 32 bit register, 
      * but the data is 64bits wide, so we read it by 32bits steps and then 
      * translate to long and finally convert that long in a float to not waste
      * too much memory
      */
-    int low, high {0};
+    int32_t low_raw, high_raw {0};
+    uint64_t low, high {0};
     int64_t value {0};
     int base = 5;
     for(int i=0; i<4; ++i){
-        low = *(axil_reg_intf+base+2*i);
-        high = *(axil_reg_intf+base+2*i+1);
+        low_raw  = *(axil_reg_intf + base + 2*i);
+        high_raw = *(axil_reg_intf + base + 2*i + 1);
+        // Prevent sign-extension by converting to unsigned 32-bit
+        low  = static_cast<uint32_t>(low_raw);
+        high = static_cast<uint32_t>(high_raw);
+        value = static_cast<int64_t>((static_cast<uint64_t>(high) << 32) | low);
+
+        //low = *(axil_reg_intf+base+2*i);
+        //high = *(axil_reg_intf+base+2*i+1);
 	//std::cout << low << " " << high << std::endl;
-        value = (static_cast<int64_t>(low)) | ((static_cast<int64_t>(high)<<32));
-        read_values[i] = static_cast<float>(value);
+        //value = (static_cast<int64_t>(low)) | ((static_cast<int64_t>(high)<<32));
+        read_values[i] = value;
     }
     return 1;
 }
@@ -186,10 +198,20 @@ int apexHoloBackend::get_register_data(std::array<float, 4> &read_values){
 int apexHoloBackend::get_snapshot(std::array<int16_t, SNAPSHOT_SAMPLES> &adc0,
         std::array<int16_t, SNAPSHOT_SAMPLES> &adc1
         ){
+    //we need to produce a rising edge on the bit 2
+    uint32_t prev_value = static_cast<uint32_t>(*(axil_reg_intf));
+    prev_value &= ~(1 << 2);
+    *(axil_reg_intf) = prev_value;
+    prev_value |= (1<<2);
+    *(axil_reg_intf) = prev_value;
+    //sleep
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     for(int i=0; i<SNAPSHOT_SAMPLES; ++i){
         adc0[i] = *(axil_snapshot_intf+2*i);
         adc1[i] = *(axil_snapshot_intf+2*i+1);
     }
     return 0;
 }
+
 

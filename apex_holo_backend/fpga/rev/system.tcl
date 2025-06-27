@@ -1020,7 +1020,7 @@ Port;FD4A0000;FD4AFFFF;1|FPD;DPDMA;FD4C0000;FD4CFFFF;1|FPD;DDR_XMPU5_CFG;FD05000
   assign_bd_address -offset 0xA0008000 -range 0x00008000 -target_address_space [get_bd_addr_spaces mpsoc/Data] [get_bd_addr_segs HPM0_FPD_M01_axil/Reg] -force
   assign_bd_address -offset 0xA0010000 -range 0x00008000 -target_address_space [get_bd_addr_spaces mpsoc/Data] [get_bd_addr_segs HPM0_FPD_M02_axil/Reg] -force
   assign_bd_address -offset 0xA0018000 -range 0x00008000 -target_address_space [get_bd_addr_spaces mpsoc/Data] [get_bd_addr_segs HPM0_FPD_M03_axil/Reg] -force
-  assign_bd_address -offset 0xA0020000 -range 0x00008000 -target_address_space [get_bd_addr_spaces mpsoc/Data] [get_bd_addr_segs HPM0_FPD_M04_axil/Reg] -force
+  assign_bd_address -offset 0xA0080000 -range 0x00080000 -target_address_space [get_bd_addr_spaces mpsoc/Data] [get_bd_addr_segs HPM0_FPD_M04_axil/Reg] -force
 
 
   # Restore current instance

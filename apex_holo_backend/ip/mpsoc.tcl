@@ -89,8 +89,8 @@ set_property CONFIG.PROTOCOL AXI4LITE [get_bd_intf_ports /HPM0_FPD_M04_axil]
 connect_bd_net -net axil_arst_n [get_bd_pins hpm0_intercon/M04_ARESETN] 
 connect_bd_net -net mpsoc_clk0 [get_bd_pins hpm0_intercon/M04_ACLK] 
 assign_bd_address [get_bd_addr_segs {HPM0_FPD_M04_axil/Reg }]
-set_property range 32K [get_bd_addr_segs {mpsoc/Data/SEG_HPM0_FPD_M04_axil_Reg}]
-set_property offset 0xA0020000 [get_bd_addr_segs {mpsoc/Data/SEG_HPM0_FPD_M04_axil_Reg}]
+set_property offset 0xA0080000 [get_bd_addr_segs {mpsoc/Data/SEG_HPM0_FPD_M04_axil_Reg}]
+set_property range 512K [get_bd_addr_segs {mpsoc/Data/SEG_HPM0_FPD_M04_axil_Reg}]
 
 
 ##configuration for HPM1_FPD

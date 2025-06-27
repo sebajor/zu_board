@@ -5,6 +5,8 @@
 build/
 *.npz
 *.bof
+*.bit
+*.bin
 
 */rev/*
 

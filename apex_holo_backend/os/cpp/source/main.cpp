@@ -1,20 +1,19 @@
-#include "../includes/apexHoloBackend.h"
 #include "../includes/SCPI_server.h"
 #include <iostream>
-#include <string>
 #include <vector>
-#include <mutex>
-#include <atomic>
-#include <thread>
-#include <chrono>
+#include <array>
 
-
+/*
+ * this should be in header file!
+ */
 //fpga initial parameters
 int acc_len {16384};
 int k {102};
 int dft_size {1024};
 const int twiddle_point {14};
 
+
+//configuration of the axilite devices
 
 const axi_lite_reg axil_reg {
     .page_offset = (0xA0008000/PAGE_SIZE)*PAGE_SIZE,
@@ -32,103 +31,27 @@ const axi_lite_reg axil_bram {
 };
 
 const axi_lite_reg snapshot_bram {
-    .page_offset = (0xA0000000/PAGE_SIZE)*PAGE_SIZE,
-    .internal_offset =0xA0000000%PAGE_SIZE,
-    .kernel_size = 32*1024,
-    .fpga_addr = 1024
+    .page_offset = (0xA0080000/PAGE_SIZE)*PAGE_SIZE,
+    .internal_offset =0xA0080000%PAGE_SIZE,
+    .kernel_size = 32*SNAPSHOT_SAMPLES,
+    .fpga_addr = SNAPSHOT_SAMPLES
 };
 
-const std::string binfile {"/home/root/bitfiles/holo_test/fpga.bin"};
+//
+const std::string binfile {"/home/root/sandbox/fpga.bin"};
 const std::string dev_mem {"/dev/mem"};
 
-//network parameters
-//std::string_view ip {"192.168.7.2"};
-std::string_view ip {"10.0.6.229"};
+//communication settings
+std::vector<int>  sock_index {0};
+std::string_view ip {"localhost"};      //dont know why in the zuboard is not
+                                        //recognizing the bare ip..but with localhost
+                                        //it seems to be getting all the addresses
 int port_cmd {12234}, port_data {12235};
-
 int recv_len {128};
-
-//scpi commands
-//scpi commands
-std::vector<std::string_view> scpi_cmds {
-    "HOLO:ZUBOARD:SET_ACC",
-    "HOLO:ZUBOARD:GET_REG",
-    "HOLO:ZUBOARD:GET_SNAPSHOT",
-    "HOLO:ZUBOARD:ENABLE_CORR",
-    "HOLO:ZUBOARD:DISABLE_CORR",
-    "HOLO:ZUBOARD:SET_DFT_SIZE",
-    "HOLO:ZUBOARD:SET_TWIDDLE",
-};
-
-
-
-//send message size
-const int send_msg_size = 4;
-
-//variable to be shared between threads
-std::mutex mut;
-std::atomic<int> data_flag = 0;
-
-void data_thread(apexHoloBackend &fpga){
-    std::cout << "starting data thread at "<< ip << " "<<port_data <<"\n";
-    TcpServer data_serv(ip, port_data);
-    std::vector<int> sock_index {};
-    std::vector<char> recv_buffer {0};
-    int acc_len {128};
-    recv_buffer.reserve(recv_len);
-    int recv_size {0};
-    int64_t stamp {0};
-
-    std::array<float, 4> read_data;
-    std::vector<float> send_msg(send_msg_size*5);// = {0};
-    //send_msg.reserve(send_msg_size*4);
-    std::cout << send_msg_size << " " << send_msg.size() << "\n";
-    int msg_words = 0;
-
-    while(1){
-        data_serv.checkClientAvailable(sock_index, 5);
-        for(int i=sock_index.size()-1; i>-1; --i){
-            //if the recv_size is zero the function internally drop the socket
-            recv_size = data_serv.recvSocketData<char>(recv_buffer, recv_len,
-                                                        sock_index[i]);
-        }
-        if(data_flag){
-            mut.lock();
-            if(fpga.check_data_available()){
-                fpga.get_register_data(read_data);
-                fpga.acknowledge_data();
-		stamp = std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::system_clock::now().time_since_epoch()).count();
-                for(int i=0; i<4; ++i){
-                    send_msg[i+msg_words*5] = read_data[i];
-		    //std::cout << read_data[i] << " ";
-                }
-		send_msg[4+msg_words*5] = static_cast<float>(stamp);
-		//std::cout << "\n";
-                msg_words+=1;
-                if(msg_words==(send_msg_size)){
-		    std::cout << "debug print\n";
-		    for(int j=0; j<send_msg.size(); ++j)
-		        std::cout << send_msg[j] << " ";
-		    std::cout << "\n";
-                    
-		    std::cout << "sending data\n";
-                    for(int j=1; j< data_serv.fds.size(); ++j){
-                        data_serv.sendSocketData<float>(send_msg, j);
-                    }
-		    msg_words=0;
-                }
-            }
-            mut.unlock();
-        }
-    }
-}
-
 
 
 
 int main(){
-    std::array<float, 4> read_data {};
     std::cout << "creating fpga obj\n";
     apexHoloBackend fpga = apexHoloBackend(binfile, dev_mem, 
             axil_reg, axil_bram, snapshot_bram);
@@ -137,105 +60,41 @@ int main(){
     std::cout << "setting accumulation\n";
     fpga.set_accumulation(acc_len);
     std::cout << "uploading twiddle factors\n";
-    fpga.upload_twiddle_factors(dft_size, k, twiddle_point); 
-    std::cout << "enabling correlator\n";
+    fpga.upload_twiddle_factors(k, twiddle_point); 
     
-    //cmds server
-    SCPI_server cmd_serv(ip, port_cmd);
-    std::vector<int> socket_index {0};
+    //scpi server 
+    std::cout  << "creating the SCPI server\n";
+    //btw dont use the fpga obj out of the SCPI_server!! when getting data uses
+    //a thread to send the data to the data port, so it can mess with it
+    SCPI_server scpi_server(ip, port_cmd, port_data, fpga);
     int recv_size {0};
-    std::vector<char> recv_buffer(recv_len);
+    std::vector<char> recv_buffer {0};
+    recv_buffer.reserve(recv_len);
+    //to parse the message
     std::string recv_msg {};
-    std::string out_msg {"No cmd found\n"};
-    float arg = -1;
-    int func_index = -1;
-
-    //data_thread(fpga);
-    std::thread t_data(data_thread, std::ref(fpga));
-
+    std::string cmds_out {"No cmd found\n"};
     
-    //mut.lock();
-    //fpga.enable_correlator();
-    //data_flag = 1;
-    //mut.unlock();
+    std::cout << "Entering to the while true loop\n";
+
     while(1){
-        cmd_serv.TcpServer::checkClientAvailable(socket_index);
-        for(int i=socket_index.size()-1; i>-1; --i){
-            recv_size = cmd_serv.TcpServer::recvSocketData<char>(recv_buffer, recv_len,
-                    socket_index[i]);
-            if((recv_size==0) | (recv_size==-1)){
-                //if the recv_size==0 then the socket is disconnected,
-                //if -1 there was an error
+        scpi_server.cmd_server.checkClientAvailable(sock_index);
+        for(int i=sock_index.size()-1; i>-1; --i){
+            recv_size = scpi_server.cmd_server.recvSocketData<char>(recv_buffer, recv_len,
+                    sock_index[i]);
+            std::cout << "recv size " << recv_size << "\n";
+            if(recv_size==0){
+                //there was a deleted socket
+                std::cout << "delete socket at "<<i << std::endl;
                 continue;
             }
             recv_msg = recv_buffer.data();
-            func_index = cmd_serv.parse_recv_msg(recv_msg, arg, scpi_cmds);
-            std::cout << "arg recv "<< arg<< "\n";
-            switch(func_index){
-                case 0:{//set acc
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.set_accumulation(static_cast<int>(arg));
-                        mut.unlock();
-                        acc_len = static_cast<int>(arg);
-                    }
-                    break;
-                }
-                case 1:{
-                    //get register; TODO
-                    break;
-                }
-                case 2:{
-                    //get snapshot; TODO
-                    break;
-                }
-                case 3:{//enable corr
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.enable_correlator();
-                        data_flag = 1;
-                        mut.unlock();
-                    }
-                    break;
-                }
-                case 4:{//disable corr
-                    if(data_flag==1)
-                        data_flag =0;
-                    break;
-                }
-                case 5:{//set dft
-                    if(data_flag==0){
-                         mut.lock();
-                         fpga.set_dft_len(static_cast<int>(arg));
-                         mut.unlock();
-                         dft_size = static_cast<int>(arg);
-                    }
-                    break;
-                }
-                case 6:{
-                    if(data_flag==0){
-                        mut.lock();
-                        fpga.upload_twiddle_factors(dft_size, static_cast<int>(arg), twiddle_point);
-                        mut.unlock();
-                    }
-                }
-            }
-
-
+            scpi_server.parse_recv_msg(recv_msg, cmds_out);
+            //send the response
+            recv_buffer.resize(cmds_out.size());
+            recv_buffer.assign(cmds_out.data(), cmds_out.data()+cmds_out.size());
+            scpi_server.cmd_server.sendSocketData<char>(recv_buffer, sock_index[i]);
+            recv_buffer.clear();
         }
     }
-    /*
-    while(1){
-        if(fpga.check_data_available()){
-            fpga.get_register_data(read_data);
-            fpga.acknowledge_data();
-            std::cout << "data available, erorr:"<< fpga.check_ack_error() << "\n";
-            for(int i=0; i< read_data.size(); ++i){
-                std::cout << read_data[i] <<"\n";
-            }
-        }
-    }
-    */
-    std::cout << "asdqwkeq\n";
     return 1;
 }
