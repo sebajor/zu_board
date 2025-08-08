@@ -329,7 +329,29 @@ int SCPI_server::zuboard_get_integration_time(std::string_view msg, std::string 
 
 
 int SCPI_server::zuboard_get_reg(std::string_view msg, std::string &out_msg){
-    return 0;
+    std::array<uint64_t, 4> read_data;
+    try{
+        if(this->data_flag){
+            out_msg.assign(std::string(msg.substr(0, msg.size()-1)).append(" ERROR! CONT STREAM ON\n"));
+            return 0;
+        }
+        std::lock_guard<std::mutex> lock(this->mut);
+        this->fpga.acknowledge_data();
+        this->fpga.get_register_data(read_data);
+        out_msg.assign(msg);
+        out_msg.append(reinterpret_cast<const char*>(read_data.data()), read_data.size()*sizeof(uint64_t));
+        return 0;
+    }
+    catch(...){
+            std::cout << "ERROR in getting integration time!\n";
+            std::cout << msg << "\n";
+            out_msg.assign(std::string(msg.substr(0, msg.size()-1)).append(" ERROR!\n"));
+            return 1;
+    }
+    return 1;
+
+    
+
 };
 
 

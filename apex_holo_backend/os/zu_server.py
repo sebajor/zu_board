@@ -294,7 +294,7 @@ def execute_command(cmd, fpga_intf):
 
 
 if __name__ == '__main__':
-    fpga_intf = holo_backend_server(binfile, dev_mem_file, registers)
+    fpga_intf = correlator(binfile, dev_mem_file, registers)
     fpga_intf.set_acc_len(acc_len)
     fpga_intf.configure_correlator(dft_size, k, twidd_pt)
     fpga_intf.enable_correlator()

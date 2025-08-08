@@ -4,7 +4,7 @@
 const int PAGE_SIZE = 4096;
 const std::string mem_file {"/dev/mem"};
 const int MAX_DFT_SIZE = 1024;
-const int SNAPSHOT_SAMPLES = 16384;  //
+const int SNAPSHOT_SAMPLES = 1024;  //
 const int TWIDDLE_POINT = 14;
 
 struct axi_lite_reg {

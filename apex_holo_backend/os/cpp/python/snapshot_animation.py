@@ -4,10 +4,11 @@ import socket
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import time
+import ipdb
 
 parser = argparse.ArgumentParser(
     description="Plot snapshots from zuboard.")
-parser.add_argument("-i", "--ip", dest="ip", default="10.0.6.113",
+parser.add_argument("-i", "--ip", dest="ip", default="10.0.6.88",
     help="zuboard IP address.")
 
 parser.add_argument("-p", "--p", dest='port', default=12234,
@@ -15,12 +16,12 @@ parser.add_argument("-p", "--p", dest='port', default=12234,
 
 parser.add_argument("-fft", '--fft', dest='fft', action='store_true',
                     help="plot the spectrum also")
-parser.add_argument("-samples", "--samples", dest="samples", default=2**14, type=int, 
+parser.add_argument("-samples", "--samples", dest="samples", default=2**10, type=int, 
                     help="Number of samples to use")
 
 
 bits = 14
-msg = 'HOLO:ZUBOARD:GET_SNAPSHOT\n'
+msg = 'HOLO:ZUBOARD:GET_SNAPSHOT'
 
 
 if __name__ == '__main__':
@@ -33,14 +34,14 @@ if __name__ == '__main__':
         fig, axes = plt.subplots(2,2)
         for i in range(2):
             axes[0,i].set_xlim(0, args.samples)
-            axes[0,i].set_ylim(-2**13, 2**13)
+            axes[0,i].set_ylim(-2**10, 2**10)
             axes[0,i].grid()
             axes[1,i].set_xlim(0, 50)
             axes[1,i].set_ylim(0,160)
             axes[1,i].grid()
-            line, = axes[0,i].plot([],[],animated=True)
+            line, = axes[0,i].plot([],[])
             data.append(line)
-            line, = axes[1,i].plot([],[],animated=True)
+            line, = axes[1,i].plot([],[])
             data.append(line)
 
     else:
@@ -49,7 +50,7 @@ if __name__ == '__main__':
             ax.set_xlim(0, args.samples)
             ax.set_ylim(-2**13, 2**13)
             ax.grid()
-            line, = ax.plot([],[],animated=True)
+            line, = ax.plot([],[])#,animated=True)
             data.append(line)
 
     ##connect to the socket
@@ -58,19 +59,19 @@ if __name__ == '__main__':
 
     def recv_all_data(sock):
         sock.send(msg.encode())
-        length = 65574
-        data = b''
-        while(len(data)<length):
-            more = sock.recv(length-len(data))
+        length =4133 
+        raw_data = b''
+        while(len(raw_data)<length):
+            more = sock.recv(length-len(raw_data))
             if not more:
                 raise ConnectionError("Connection broken!")
-            data += more
-        return data
+            raw_data += more
+        return raw_data
     
     def animate(_):
         raw_data = recv_all_data(sock)
-        adc0 = np.frombuffer(raw_data[31:2**14*2+31], 'i2')
-        adc1 = np.frombuffer(raw_data[32+2**14*2+5:-1], 'i2')
+        adc0 = np.frombuffer(raw_data[30:2*2**10+30], 'i2')
+        adc1 = np.frombuffer(raw_data[36+2**10*2:-1], 'i2')
         if(len(data)==4):
             spect0 = np.fft.fft(adc0[:args.samples])
             spect1 = np.fft.fft(adc1[:args.samples])
@@ -79,10 +80,11 @@ if __name__ == '__main__':
             data[2].set_data(time_x[:args.samples], adc1[:args.samples])
             data[3].set_data(freq, 20*np.log10(np.abs(spect1[:args.samples//2])))
         else:
+            #print('setting data')
             data[0].set_data(time_x[:args.samples], adc0[:args.samples])
             data[1].set_data(time_x[:args.samples], adc1[:args.samples])
         return data
 
-    ani = FuncAnimation(fig, animate, blit=True, interval=200)
+    ani = FuncAnimation(fig, animate, interval=100)
     plt.show()
 
