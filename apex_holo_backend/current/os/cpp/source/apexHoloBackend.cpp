@@ -12,9 +12,9 @@
 #include <unistd.h> //open, close
 #include <thread>
 #include <chrono>
+#include <vector>
 
-
-// axil_reg[0]:
+//axil_reg[0]
 //      0:reset
 //      1:enable_adc
 //      2:enable_bram
@@ -26,7 +26,7 @@
 // axil_reg[3]: FREE
 //
 // axil_reg[4]:
-//      0:correlator_valid 
+//      0:correlator_valid
 //      1:correlator_ack_error
 //      2:mmcm_locked
 //      3:clk_align_frame_valid
@@ -40,17 +40,20 @@
 // axil_reg[10]: ab_real_1
 // axil_reg[11]: ab_imag_0
 // axil_reg[12]: ab_imag_1
-
+// axil_reg[13]: ring_buffer_write_pointer
+// axil_reg[14]: first_timestamp
+//
 
 
 //class constructor
 apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &dev_mem, 
         const axi_lite_reg &axil_reg, const axi_lite_reg &axil_bram,
-        const axi_lite_reg &snapshot_bram
+        const axi_lite_reg &snapshot_bram, const axi_lite_reg &axi_ring
             ){
     axi_reg_info = axil_reg;    //maybe this is wrong..can be a problem with the scope
     axi_bram_info = axil_bram;    //maybe this is wrong..can be a problem with the scope
     axi_snapshot_info = snapshot_bram;
+    axi_ring_info = axi_ring;
 
     //get the mmap focused in the register..
     //TODO: program the FPGA before doing this!!!
@@ -75,6 +78,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
             )
         );
 
+    //which is this one! -->
     axil_bram_intf = static_cast<int*>(
         mmap(NULL,
             axi_bram_info.kernel_size,
@@ -84,7 +88,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
             axi_bram_info.page_offset
             )
         );
-    
+
     axil_snapshot_intf = static_cast<int16_t*>(
         mmap(NULL,
             axi_snapshot_info.kernel_size,
@@ -94,18 +98,33 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
             axi_snapshot_info.page_offset
             )
         );
+    axil_ring_intf = static_cast<int64_t*>(
+        mmap(NULL,
+            axi_ring_info.kernel_size,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED,
+            mem_fd,
+            axi_ring_info.page_offset
+            )
+        );
+
 
     //reset the system and enable the adc
     *(axil_reg_intf) = 1;
     *(axil_reg_intf) = 0;
     *(axil_reg_intf) = 2;
+    //get initial timestamp
+    auto first_stamp = std::chrono::high_resolution_clock::now();
+    this->initial_stamp.second = *(axil_reg_intf+14);
+    std::chrono::duration<double, std::micro> stamp = first_stamp.time_since_epoch();
+    this->initial_stamp.first = static_cast<uint64_t>(stamp.count());
 }
-
-
 
 apexHoloBackend::~apexHoloBackend(){
     munmap(axil_reg_intf, axi_reg_info.kernel_size);
     munmap(axil_bram_intf, axi_bram_info.kernel_size);
+    munmap(axil_snapshot_intf, axi_bram_info.kernel_size);
+    munmap(axil_ring_intf, axi_ring_info.kernel_size);
     close(mem_fd);
 }
 
@@ -122,8 +141,10 @@ int apexHoloBackend::set_dft_len(int dft_size){
     return (*(axil_reg_intf+2) != dft_size);
 }
 
+
+
 int apexHoloBackend::upload_twiddle_factors(
-        int k, 
+        int k,
         int twiddle_point
         ){
     if(this->dft_len>MAX_DFT_SIZE)
@@ -143,6 +164,7 @@ int apexHoloBackend::upload_twiddle_factors(
     return 0;
 }
 
+
 int apexHoloBackend::enable_correlator(){
     uint32_t prev_value = static_cast<uint32_t>(*(axil_reg_intf));
     std::cout << prev_value << "\n";
@@ -153,6 +175,8 @@ int apexHoloBackend::enable_correlator(){
 }
 
 
+
+//this one are the samples take via the axi-lite interface..this is outdated
 int apexHoloBackend::check_data_available(){
     int data = *(axil_reg_intf+4);
     return (data & 1);
@@ -213,5 +237,37 @@ int apexHoloBackend::get_snapshot(std::array<int16_t, SNAPSHOT_SAMPLES> &adc0,
     }
     return 0;
 }
+
+double apexHoloBackend::counter2timestamp(uint64_t curr_counter){
+    //this returns the timestamp from epoch
+    double ticks = curr_counter-this->initial_stamp.first;
+    double output = this->initial_stamp.second/1e6+(ticks/this->fpga_clock_hz);
+    return output;
+}
+
+uint32_t apexHoloBackend::get_ring_buffer_pointer(){
+    uint32_t out = static_cast<uint32_t>(*(axil_reg_intf+13));
+    return out;
+}
+
+int apexHoloBackend::get_ring_buffer_data(std::vector<int64_t> &ring_data){
+
+    uint32_t wr_ptr = static_cast<uint32_t>(*(axil_reg_intf+13));
+    int unread_data = wr_ptr-this->ring_buffer_read_pointer;
+    int index = this->ring_buffer_read_pointer;
+    if(unread_data>0){
+        for(int i=0; i<unread_data; ++i){
+            
+            //here I need the structure of the ring buffer.. that should be the bram if Im not mistake
+            ring_data.push_back(static_cast<int64_t>(*(axil_ring_intf+index)));
+            if(index == RING_ADDR_LIM)
+                index = 0;
+            else
+                index ++;
+        }
+    }
+    return 0;
+}
+
 
 

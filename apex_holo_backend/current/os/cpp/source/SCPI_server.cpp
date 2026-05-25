@@ -1,75 +1,35 @@
-#include "../includes/SCPI_server.h"
-#include <iostream>
+#include <vector>
+#include <utility>
 #include <string>
+#include <mutex>
+#include "../includes/SCPI_server.h"
 #include <cstring>
-#include <thread>
-#include <chrono>
 
-//here I initialize the TcpServer and the internal fpga object to point to the referenced one
-SCPI_server::SCPI_server(std::string_view ip, int cmd_port, int data_port,
-        apexHoloBackend &apex_fpga)
-    : cmd_server(ip, cmd_port), data_server(ip, data_port), fpga(apex_fpga) {
-        this->worker = std::thread(&SCPI_server::data_thread, this);
+SCPI_server::SCPI_server(apexHoloBackend &apex_fpga, std::mutex &shared_mutex, 
+        std::string_view udp_ip, int udp_port, 
+        std::string &tcp_ip, int tcp_port, 
+        int timeout=1,  int send_size=1024, int recv_size=1024, int reuse_addr=1)
+    :fpga(apex_fpga),
+    mut(shared_mutex),
+    tcp_ip(tcp_ip),
+    tcp_port(tcp_port)
+{
+
+    //start the udp server
+    //
+    this->udp_sock_fd = UdpSocket::socket_config(-1, send_size, recv_size, timeout, reuse_addr);
+    if(UdpSocket::bindSocket(this->udp_sock_fd, udp_ip, udp_port))
+        std::cout << "Failed to create the UDP socket!\n";
 }
 
 SCPI_server::~SCPI_server(){
-    this->alive = 0;
-    if(this->worker.joinable())
-        this->worker.join();
-
+    UdpSocket::closeSocket(this->udp_sock_fd);
+    if(this->tcp_sock_fd!=-1)
+        TcpSocket::closeSocket(this->tcp_sock_fd);
 }
 
-void SCPI_server::data_thread(){
-    std::vector<int> sock_index {};
-    std::vector<char> recv_buffer {0};
-    recv_buffer.reserve(128);
-    int recv_size {0};
-    int64_t stamp {0};
-    std::array<uint64_t, 4> read_data;
-    
-    int send_msg_size = 4;  //we gather this amount to send it
-    int msg_words = 0;      //counter to see when send the packet
-    std::vector<int64_t> send_msg(send_msg_size*5);   //we send the A**2,B**2, AB_re, AB_im, stamp
-                                                    //
-    while(alive){
-        this->data_server.checkClientAvailable(sock_index, 10);
-        for(int i=sock_index.size()-1; i>-1; --i){
-            //if the recv_size is zero the function internally drop the socket
-            recv_size = this->data_server.recvSocketData<char>(recv_buffer, 128,
-                                                        sock_index[i]);
-        }
-        if(this->data_flag){
-            try{
-                {
-                    std::lock_guard<std::mutex> lock(this->mut);
-                    if(this->fpga.check_data_available()){
-                        this->fpga.get_register_data(read_data);
-                        this->fpga.acknowledge_data();
-                        stamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch()).count();
-                        for(int i=0; i<4; ++i){
-                            send_msg[i+msg_words*5] = read_data[i];
-                        }
-                        std::memcpy(&send_msg[4+msg_words*5], &stamp, sizeof(uint64_t));
-                        //send_msg[4+msg_words*5] = static_cast<float>(stamp);
-                        msg_words+=1;
-                        if(msg_words==(send_msg_size)){
-                            for(int j=1; j< this->data_server.fds.size(); ++j){
-                                this->data_server.sendSocketData<int64_t>(send_msg, j);
-                            }
-                            msg_words = 0;
-                        }
-                    }
-                }
-            }
-            catch(const std::exception &e){
-                std::cout << "Data thread exception: "<< e.what() << "\n";
-            }
-        }
-    }
-}
 
-int SCPI_server::parse_recv_msg(std::string_view input_data, std::string &out_msg){
+int SCPI_server::parse_recv_msg(std::string &input_data, std::string &out_msg){
     /*
      *  See if it found a match with the SCPI commands and execute the function associated
      */
@@ -86,13 +46,30 @@ int SCPI_server::parse_recv_msg(std::string_view input_data, std::string &out_ms
     return -1;
 }
 
+int SCPI_server::check_messages(){
+    int recv = UdpSocket::recvFrom(this->udp_sock_fd, this->recv_buffer, 
+            this->recv_len, this->udp_client_addr);
+    if(recv>0){
+        this->recv_msg = recv_buffer.data();
+        this->parse_recv_msg(this->recv_msg, this->ans);
+        return 0;
+    }
+    return recv;
+}
+
+int SCPI_server::answer_request(){
+    int out = UdpSocket::sendTo(this->udp_sock_fd, this->ans.data(), 
+            (this->ans.size())*sizeof(char), this->udp_client_addr);
+    return out;
+}
 
 
-int SCPI_server::zuboard_set_acc(std::string_view msg, std::string &out_msg){
+//internal functions
+int SCPI_server::zuboard_set_acc(std::string &msg, std::string &out_msg){
     //first we will try to get the argument
     size_t space = msg.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = msg.substr(space+1);
+    if(space!= std::string::npos){
+        std::string s_arg = msg.substr(space+1);
         try{
             float arg = std::stof(std::string(s_arg));
             std::cout << "setting acc to "<< s_arg << "\n";
@@ -113,7 +90,9 @@ int SCPI_server::zuboard_set_acc(std::string_view msg, std::string &out_msg){
     return 1;
 };
 
-int SCPI_server::zuboard_get_acc(std::string_view msg, std::string &out_msg){
+
+
+int SCPI_server::zuboard_get_acc(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         out_msg.assign(std::string(msg.substr(0, msg.size()-1))+" "+
@@ -129,13 +108,14 @@ int SCPI_server::zuboard_get_acc(std::string_view msg, std::string &out_msg){
     }
 };
 
-int SCPI_server::zuboard_set_dft_size(std::string_view msg, std::string &out_msg){
+
+int SCPI_server::zuboard_set_dft_size(std::string &msg, std::string &out_msg){
     //try to get the arg
     size_t space = msg.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = msg.substr(space+1);
+    if(space!= std::string::npos){
+        std::string s_arg = msg.substr(space+1);
         try{
-            float arg = std::stof(std::string(s_arg));
+            float arg = std::stof(s_arg);
             std::cout << "setting dft size to "<< s_arg << "\n";
             std::lock_guard<std::mutex> lock(this->mut);
             this->fpga.set_dft_len(arg);
@@ -154,8 +134,7 @@ int SCPI_server::zuboard_set_dft_size(std::string_view msg, std::string &out_msg
     return 1;
 };
 
-
-int SCPI_server::zuboard_get_dft_size(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_get_dft_size(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         out_msg.assign(std::string(msg.substr(0, msg.size()-1))+" "+
@@ -172,13 +151,13 @@ int SCPI_server::zuboard_get_dft_size(std::string_view msg, std::string &out_msg
 };
 
 
-int SCPI_server::zuboard_set_twiddle(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_set_twiddle(std::string &msg, std::string &out_msg){
     //try to get the arg
     size_t space = msg.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = msg.substr(space+1);
+    if(space!= std::string::npos){
+        std::string s_arg = msg.substr(space+1);
         try{
-            float arg = std::stof(std::string(s_arg));
+            float arg = std::stof(s_arg);
             std::cout << "setting twiddle to "<< s_arg << "\n";
             std::lock_guard<std::mutex> lock(this->mut);
             this->fpga.upload_twiddle_factors(arg, this->fpga.twiddle_point);
@@ -196,7 +175,7 @@ int SCPI_server::zuboard_set_twiddle(std::string_view msg, std::string &out_msg)
     return 1;
 };
 
-int SCPI_server::zuboard_get_twiddle(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_get_twiddle(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         out_msg.assign(std::string(msg.substr(0, msg.size()-1))+" "+
@@ -214,7 +193,7 @@ int SCPI_server::zuboard_get_twiddle(std::string_view msg, std::string &out_msg)
 };
 
 
-int SCPI_server::zuboard_get_snapshot(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_get_snapshot(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         this->fpga.get_snapshot(this->adc0_snapshot, this->adc1_snapshot);
@@ -234,7 +213,8 @@ int SCPI_server::zuboard_get_snapshot(std::string_view msg, std::string &out_msg
     }
 };
 
-int SCPI_server::zuboard_enable_corr(std::string_view msg, std::string &out_msg){
+
+int SCPI_server::zuboard_enable_corr(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         this->fpga.enable_correlator();
@@ -250,7 +230,7 @@ int SCPI_server::zuboard_enable_corr(std::string_view msg, std::string &out_msg)
     return 0;
 };
 
-int SCPI_server::zuboard_continous_stream(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_continous_stream(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         if(this->data_flag==0){
@@ -267,7 +247,7 @@ int SCPI_server::zuboard_continous_stream(std::string_view msg, std::string &out
     }
 };
 
-int SCPI_server::zuboard_disable_continous_stream(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_disable_continous_stream(std::string &msg, std::string &out_msg){
     try{
         if(this->data_flag==1)
             this->data_flag = 0;
@@ -282,13 +262,14 @@ int SCPI_server::zuboard_disable_continous_stream(std::string_view msg, std::str
 }
 
 
-int SCPI_server::zuboard_set_integration_time(std::string_view msg, std::string &out_msg){
+
+int SCPI_server::zuboard_set_integration_time(std::string &msg, std::string &out_msg){
     //try to get the arg
     size_t space = msg.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = msg.substr(space+1);
+    if(space!= std::string::npos){
+        std::string s_arg = msg.substr(space+1);
         try{
-            float arg = std::stof(std::string(s_arg));
+            float arg = std::stof(s_arg);
             std::cout << "setting integration time to "<< s_arg << "\n";
             int acc = static_cast<int>(arg*this->adc_clock/this->fpga.dft_len);
             std::cout << "Using acc len: "<< acc <<"\n";
@@ -309,7 +290,7 @@ int SCPI_server::zuboard_set_integration_time(std::string_view msg, std::string 
     return 1;
 };
 
-int SCPI_server::zuboard_get_integration_time(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_get_integration_time(std::string &msg, std::string &out_msg){
     try{
         std::lock_guard<std::mutex> lock(this->mut);
         out_msg.assign(std::string(msg.substr(0, msg.size()-1))+" "+
@@ -326,9 +307,7 @@ int SCPI_server::zuboard_get_integration_time(std::string_view msg, std::string 
     return 1;
 };
 
-
-
-int SCPI_server::zuboard_get_reg(std::string_view msg, std::string &out_msg){
+int SCPI_server::zuboard_get_reg(std::string &msg, std::string &out_msg){
     std::array<uint64_t, 4> read_data;
     try{
         if(this->data_flag){
@@ -349,11 +328,25 @@ int SCPI_server::zuboard_get_reg(std::string_view msg, std::string &out_msg){
             return 1;
     }
     return 1;
-
-    
-
 };
 
+//TODO!!!
 
-
+int SCPI_server::zuboard_set_dest_ip(std::string &msg, std::string &out_msg){
+    return 0;
+};
+int SCPI_server::zuboard_get_dest_ip(std::string &msg, std::string &out_msg){
+    return 0;
+};
+int SCPI_server::zuboard_set_dest_port(std::string &msg, std::string &out_msg){
+    return 0;
+};
+int SCPI_server::zuboard_get_dest_port(std::string &msg, std::string &out_msg){
+    return 0;
+};
+int SCPI_server::zuboard_start_acquisition(std::string &msg, std::string &out_msg){
+    //I should connect to the tcp server
+    //here I should use: this will initialize the correlator this->fpga.enable_correlator(); 
+    return 0;
+};
 

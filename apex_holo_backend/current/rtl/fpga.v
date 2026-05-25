@@ -20,7 +20,8 @@ module fpga #(
     parameter ACC_POINT = 25,
     parameter ACC_IN_DELAY = 1,
     parameter ACC_OUT_DELAY = 2,
-    parameter CORR_DOUT_WIDTH = 64      //the bin pt of the output is the same as the ACC
+    parameter CORR_DOUT_WIDTH = 64,      //the bin pt of the output is the same as the ACC
+    parameter RING_BUFFER_ADDR = 14
 
 )(
     output wire [2:0] led0, led1,
@@ -274,9 +275,10 @@ wire enable_adc;
 wire enable_bram;
 wire enable_correlator;
 wire [31:0] delay_line, acc_len;
+wire [31:0] stamp_counter_axil;
 
 wire correlator_ack;
-
+wire [RING_BUFFER_ADDR-1:0] ring_buffer_pointer;
 
 
 s_axil_reg #(
@@ -296,6 +298,9 @@ s_axil_reg #(
     .bitslip_count(bitslip_count),
     .mmcm_locked(mmcm_locked),
     .clk_align_frame_valid(clk_align_frame_valid),
+    .ring_buffer_pointer(ring_buffer_pointer),
+    .first_stamp(stamp_counter_axil),
+    .debug(),
    //ok signals and data from the correlator
     .correlator_valid(corr_data_available),
     .correlator_ack_error(corr_ack_error),
@@ -492,25 +497,25 @@ axil_bram_unbalanced #(
 	.bram_addr(bram_addr),
 	.bram_we(bram_we),
 	.bram_dout(),
-	.s_axil_araddr(HPM0_FPD_M04_axil_araddr),
-	.s_axil_arprot(HPM0_FPD_M04_axil_arprot),
-	.s_axil_arready(HPM0_FPD_M04_axil_arready),
-	.s_axil_arvalid(HPM0_FPD_M04_axil_arvalid),
-	.s_axil_awaddr(HPM0_FPD_M04_axil_awaddr),
-	.s_axil_awprot(HPM0_FPD_M04_axil_awprot),
-	.s_axil_awready(HPM0_FPD_M04_axil_awready),
-.s_axil_awvalid(HPM0_FPD_M04_axil_awvalid),
-	.s_axil_bready(HPM0_FPD_M04_axil_bready),
-	.s_axil_bresp(HPM0_FPD_M04_axil_bresp),
-	.s_axil_bvalid(HPM0_FPD_M04_axil_bvalid),
-	.s_axil_rdata(HPM0_FPD_M04_axil_rdata),
-	.s_axil_rready(HPM0_FPD_M04_axil_rready),
-	.s_axil_rresp(HPM0_FPD_M04_axil_rresp),
-	.s_axil_rvalid(HPM0_FPD_M04_axil_rvalid),
-	.s_axil_wdata(HPM0_FPD_M04_axil_wdata),
-	.s_axil_wready(HPM0_FPD_M04_axil_wready),
-	.s_axil_wstrb(HPM0_FPD_M04_axil_wstrb),
-	.s_axil_wvalid(HPM0_FPD_M04_axil_wvalid),
+	.s_axil_araddr(HPM0_FPD_M00_axil_araddr),
+	.s_axil_arprot(HPM0_FPD_M00_axil_arprot),
+	.s_axil_arready(HPM0_FPD_M00_axil_arready),
+	.s_axil_arvalid(HPM0_FPD_M00_axil_arvalid),
+	.s_axil_awaddr(HPM0_FPD_M00_axil_awaddr),
+	.s_axil_awprot(HPM0_FPD_M00_axil_awprot),
+	.s_axil_awready(HPM0_FPD_M00_axil_awready),
+.s_axil_awvalid(HPM0_FPD_M00_axil_awvalid),
+	.s_axil_bready(HPM0_FPD_M00_axil_bready),
+	.s_axil_bresp(HPM0_FPD_M00_axil_bresp),
+	.s_axil_bvalid(HPM0_FPD_M00_axil_bvalid),
+	.s_axil_rdata(HPM0_FPD_M00_axil_rdata),
+	.s_axil_rready(HPM0_FPD_M00_axil_rready),
+	.s_axil_rresp(HPM0_FPD_M00_axil_rresp),
+	.s_axil_rvalid(HPM0_FPD_M00_axil_rvalid),
+	.s_axil_wdata(HPM0_FPD_M00_axil_wdata),
+	.s_axil_wready(HPM0_FPD_M00_axil_wready),
+	.s_axil_wstrb(HPM0_FPD_M00_axil_wstrb),
+	.s_axil_wvalid(HPM0_FPD_M00_axil_wvalid),
 	.axi_clock(mpsoc_clk_100),
 	.rst(axil_rst)
 );
@@ -578,7 +583,6 @@ single_bin_fx_correlator #(
 );
 
 //This is a simple logic that takes the data and write it into a axi-lite reg
-
 //clock domain crossing
 wire [63:0] aa_axi, bb_axi, ab_re_axi, ab_im_axi;
 wire corr_valid_axi;
@@ -614,7 +618,7 @@ always@(posedge mpsoc_clk_100)begin
             pow1_0 <= bb_axi[0+:32];
             pow1_1 <= bb_axi[32+:32];
             ab_real_0 <= ab_re_axi[0+:32];
-            ab_real_1 <= ab_re_axi[32+:32];
+            ab_real_1 <= ab_re_axi[31+:32];
             ab_imag_0 <= ab_im_axi[0+:32];
             ab_imag_1 <= ab_im_axi[32+:32];
         end
@@ -629,86 +633,110 @@ end
 
 
 
-
-
-
-
-//In this case the system is writing continously a bram.. it takes ages to
-//write the complete bram
-
-reg [9:0] bram_counter = 0;
+//To store the data Ill use a single BRAM with 5 fields AA, BB, AB_re, AB_im, stamp
+//with 2**14 we have approx 6 sec of data with FFT=1024, integtime=2ms
+//
+reg [63:0] stamp_counter=0;
 always@(posedge data_clk_div)begin
     if(reset)
-        bram_counter <= 0;
-    else if(corr_dout_valid)
-        bram_counter<=bram_counter+1;
+        stamp_counter <= 0;
+    else
+        stamp_counter<= stamp_counter+1;
 end
 
 
- axil_bram_unbalanced #(
-	.FPGA_DATA_WIDTH(128),
-	.FPGA_ADDR_WIDTH(10),
+//each time we got a new correlation output we extend the 
+reg [4:0] corr_dout_valid_r =0;
+reg [64*5-1:0] ring_din=0;
+always@(posedge data_clk_div)begin
+    corr_dout_valid_r <= {corr_dout_valid_r[3:0], corr_dout_valid};
+    if(corr_dout_valid)
+        ring_din <= {aa,bb, ab_re, ab_im, stamp_counter};
+    else
+        ring_din <= {ring_din[0+:64*4], 64'b0};
+end
+
+reg [RING_BUFFER_ADDR-1:0] bram_counter =0;
+//limit the ring buffer to have the data alogned
+localparam RING_ADDR_LIM = ((1<<RING_BUFFER_ADDR)/5)*5;
+
+initial begin
+    $display("RING_ADDR_LIM: %d", RING_ADDR_LIM);
+end
+
+
+always@(posedge data_clk_div)begin
+    if(reset)
+        bram_counter <=0;
+    else if(|corr_dout_valid_r)begin
+        if(bram_counter==(RING_ADDR_LIM-1))
+            bram_counter <= 0;
+        else
+            bram_counter <= bram_counter+1;
+    end
+end
+
+wire ring_valid = |corr_dout_valid_r;
+wire [63:0] ring_din_data = ring_din[64*4+:64];
+
+
+
+axil_bram_unbalanced #(
+	.FPGA_DATA_WIDTH(64),
+	.FPGA_ADDR_WIDTH(RING_BUFFER_ADDR),
 	.AXI_DATA_WIDTH(32)
 ) axil_bram_inst2 (
 	.fpga_clk(data_clk_div),
-	.bram_din({bb,aa}),
+	.bram_din(ring_din_data),
 	.bram_addr(bram_counter),
-	.bram_we(corr_dout_valid),
+	.bram_we(ring_valid),
 	.bram_dout(),
-	.s_axil_araddr(HPM0_FPD_M03_axil_araddr),
-	.s_axil_arprot(HPM0_FPD_M03_axil_arprot),
-	.s_axil_arready(HPM0_FPD_M03_axil_arready),
-	.s_axil_arvalid(HPM0_FPD_M03_axil_arvalid),
-	.s_axil_awaddr(HPM0_FPD_M03_axil_awaddr),
-	.s_axil_awprot(HPM0_FPD_M03_axil_awprot),
-	.s_axil_awready(HPM0_FPD_M03_axil_awready),
-	.s_axil_awvalid(HPM0_FPD_M03_axil_awvalid),
-	.s_axil_bready(HPM0_FPD_M03_axil_bready),
-	.s_axil_bresp(HPM0_FPD_M03_axil_bresp),
-	.s_axil_bvalid(HPM0_FPD_M03_axil_bvalid),
-	.s_axil_rdata(HPM0_FPD_M03_axil_rdata),
-	.s_axil_rready(HPM0_FPD_M03_axil_rready),
-	.s_axil_rresp(HPM0_FPD_M03_axil_rresp),
-	.s_axil_rvalid(HPM0_FPD_M03_axil_rvalid),
-	.s_axil_wdata(HPM0_FPD_M03_axil_wdata),
-	.s_axil_wready(HPM0_FPD_M03_axil_wready),
-	.s_axil_wstrb(HPM0_FPD_M03_axil_wstrb),
-	.s_axil_wvalid(HPM0_FPD_M03_axil_wvalid),
+	.s_axil_araddr(HPM0_FPD_M04_axil_araddr),
+	.s_axil_arprot(HPM0_FPD_M04_axil_arprot),
+	.s_axil_arready(HPM0_FPD_M04_axil_arready),
+	.s_axil_arvalid(HPM0_FPD_M04_axil_arvalid),
+	.s_axil_awaddr(HPM0_FPD_M04_axil_awaddr),
+	.s_axil_awprot(HPM0_FPD_M04_axil_awprot),
+	.s_axil_awready(HPM0_FPD_M04_axil_awready),
+	.s_axil_awvalid(HPM0_FPD_M04_axil_awvalid),
+	.s_axil_bready(HPM0_FPD_M04_axil_bready),
+	.s_axil_bresp(HPM0_FPD_M04_axil_bresp),
+	.s_axil_bvalid(HPM0_FPD_M04_axil_bvalid),
+	.s_axil_rdata(HPM0_FPD_M04_axil_rdata),
+	.s_axil_rready(HPM0_FPD_M04_axil_rready),
+	.s_axil_rresp(HPM0_FPD_M04_axil_rresp),
+	.s_axil_rvalid(HPM0_FPD_M04_axil_rvalid),
+	.s_axil_wdata(HPM0_FPD_M04_axil_wdata),
+	.s_axil_wready(HPM0_FPD_M04_axil_wready),
+	.s_axil_wstrb(HPM0_FPD_M04_axil_wstrb),
+	.s_axil_wvalid(HPM0_FPD_M04_axil_wvalid),
 	.axi_clock(mpsoc_clk_100),
 	.rst(axil_rst)
 );
 
- axil_bram_unbalanced #(
-	.FPGA_DATA_WIDTH(128),
-	.FPGA_ADDR_WIDTH(10),
-	.AXI_DATA_WIDTH(32)
-) axil_bram_inst3 (
-	.fpga_clk(data_clk_div),
-	.bram_din({ab_im, ab_re}),
-	.bram_addr(bram_counter),
-	.bram_we(corr_dout_valid),
-	.bram_dout(),
-	.s_axil_araddr(HPM0_FPD_M00_axil_araddr),
-	.s_axil_arprot(HPM0_FPD_M00_axil_arprot),
-	.s_axil_arready(HPM0_FPD_M00_axil_arready),
-	.s_axil_arvalid(HPM0_FPD_M00_axil_arvalid),
-	.s_axil_awaddr(HPM0_FPD_M00_axil_awaddr),
-	.s_axil_awprot(HPM0_FPD_M00_axil_awprot),
-	.s_axil_awready(HPM0_FPD_M00_axil_awready),
-	.s_axil_awvalid(HPM0_FPD_M00_axil_awvalid),
-	.s_axil_bready(HPM0_FPD_M00_axil_bready),
-	.s_axil_bresp(HPM0_FPD_M00_axil_bresp),
-	.s_axil_bvalid(HPM0_FPD_M00_axil_bvalid),
-	.s_axil_rdata(HPM0_FPD_M00_axil_rdata),
-	.s_axil_rready(HPM0_FPD_M00_axil_rready),
-	.s_axil_rresp(HPM0_FPD_M00_axil_rresp),
-	.s_axil_rvalid(HPM0_FPD_M00_axil_rvalid),
-	.s_axil_wdata(HPM0_FPD_M00_axil_wdata),
-	.s_axil_wready(HPM0_FPD_M00_axil_wready),
-	.s_axil_wstrb(HPM0_FPD_M00_axil_wstrb),
-	.s_axil_wvalid(HPM0_FPD_M00_axil_wvalid),
-	.axi_clock(mpsoc_clk_100),
-	.rst(axil_rst)
+
+
+
+//CDC
+delay #(
+    .DATA_WIDTH(32),
+    .DELAY_VALUE(100)
+) ring_addr_synchronizer (
+    .clk(mpsoc_clk_100),
+    .din(bram_counter),
+    .dout(ring_buffer_pointer)
 );
+
+
+delay #(
+    .DATA_WIDTH(32),
+    .DELAY_VALUE(3)
+) stamp_synchronizer (
+    .clk(mpsoc_clk_100),
+    .din(stamp_counter),
+    .dout(stamp_counter_axil)
+);
+
+
 endmodule
 `resetall

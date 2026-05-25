@@ -26,7 +26,9 @@ module s_axil_reg #(
     output wire correlator_ack,
     input wire [31:0] pow0_0,pow0_1, pow1_0, pow1_1,
     input wire [31:0] ab_real_0, ab_real_1, ab_imag_0, ab_imag_1,
-
+    input wire [31:0] ring_buffer_pointer,
+    input wire [31:0] first_stamp,
+    input wire [31:0] debug,
     //
     input wire axi_clock, 
     input wire rst, 
@@ -230,6 +232,9 @@ always@(posedge axi_clock)begin
     axi_reg[RO_BASE+6] <= ab_real_1;
     axi_reg[RO_BASE+7] <= ab_imag_0;
     axi_reg[RO_BASE+8] <= ab_imag_1;
+    axi_reg[RO_BASE+9] <= ring_buffer_pointer;
+    axi_reg[RO_BASE+10] <= first_stamp;
+    axi_reg[RO_BASE+11] <= debug;
     if((~write_resp_stall & valid_write_addr & valid_write_data)& (waddr<RO_BASE)
     ) begin
         if(wstrb[0])

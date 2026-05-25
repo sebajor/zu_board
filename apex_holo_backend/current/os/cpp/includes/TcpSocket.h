@@ -22,10 +22,19 @@ int closeSocket(int sock_fd);
 
 
 template <typename T>
-int sendData(int sock_fd, std::vector<T> &data){
+int sendData(int sock_fd, std::vector<T> &data, bool keep=0){
     T* raw_pointer = &(data[0]);
     int bytes_sent = send(sock_fd, raw_pointer, data.size()*sizeof(T), 0);
-    return bytes_sent/sizeof(T);
+    int index = bytes_sent/sizeof(T);
+    if(~keep)
+        return index;
+    int total_size = data.size()*sizeof(T);
+    while(bytes_sent<total_size){
+        raw_pointer = &(data[index]);
+        bytes_sent += send(sock_fd, raw_pointer, (data.size()-index)*sizeof(T), 0);
+        index = bytes_sent/sizeof(T);
+    }
+    return index;
 }
 
 template <typename T>
