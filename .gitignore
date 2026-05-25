@@ -8,8 +8,12 @@ build/
 *.bit
 *.bin
 
+raw_data*
+
 */rev/*
 
+#collected data 
+apex_holo_backend/dev/os/python/data/*
 
 ##this are for vivado buildings
 *.jou

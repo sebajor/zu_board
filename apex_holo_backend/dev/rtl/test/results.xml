@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1770731240" />
+    <testcase name="dft_bin_multiple_inputs_test" classname="dft_bin_multiple_inputs_test" file="/home/seba/Workspace/zu_board/apex_holo_backend/dev/rtl/test/dft_bin_multiple_inputs_test.py" lineno="60" time="3.113910436630249" sim_time_ns="94530.001" ratio_time="30357.3281646137" />
+  </testsuite>
+</testsuites>

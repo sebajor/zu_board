@@ -140,7 +140,7 @@ def quick_psweep_plot(zu_pow0, zu_pow1, zu_corr, powers_sig, vna_pow=None,
     pow_diff_avg = np.mean(pow_diff, axis=1)
     pow_diff_std = np.std(pow_diff, axis=1)
 
-    axes[0,0].plot(powers_sig[0]-powers_sig, pow_diff_avg, '*-', color='darkblue', label='LTC ADCs')
+    axes[0,0].plot(powers_sig[0]-powers_sig, pow_diff_avg, '*-', color='darkblue', label='zu board')
     axes[0,1].plot(powers_sig[0]-powers_sig, pow_diff_std, '*-', color='darkblue')
     axes[1,0].plot(powers_sig[0]-powers_sig, phase_avg, '*-', color='darkblue')
     axes[1,1].plot(powers_sig[0]-powers_sig, phase_std, '*-', color='darkblue')
