@@ -1,5 +1,7 @@
 #include "../includes/SCPI_server.h"
 #include <iostream>
+#include <cerrno>
+#include <cstring>
 
 
 
@@ -12,7 +14,7 @@ int main(){
     std::string_view scpi_host {"0.0.0.0"};
 
     int tcp_port {12334};
-    std::string_view tcp_ip {"10.0.6.163"};
+    std::string_view tcp_ip {"0.0.0.0"};
     
     int offset = 0xA0008000;
     axi_lite_reg axi_reg_info {
@@ -45,6 +47,15 @@ int main(){
         .kernel_size=512*1024,
         .fpga_addr=16384
     };
+
+    fpga_parameters default_parameters {
+        .accumulation =195,
+        .dft_size = 1024,
+        .integration_time = 1024.0*195/(100*1e6),
+        .twiddle_factor =219,
+        .adc_clock = 100*1e6,
+    };
+
     
 
     int recv_bytes = 0;
@@ -61,13 +72,14 @@ int main(){
                     axi_reg_info,
                     axi_twiddle_bram,
                     axi_snapshot_bram,
-                    axi_ring_bram 
+                    axi_ring_bram,
+                    default_parameters
                     );
 
     while(1){
         recv_bytes = serv.check_message();
-        if(recv_bytes!=0){
-            std::cout << "got some message\n";
+        if(recv_bytes>0){
+            std::cout << "got some message "<<recv_bytes << "\n";
             for(int i=0; i<recv_bytes; ++i){
                 std::cout << serv.buffer[i];
             }
@@ -75,6 +87,9 @@ int main(){
             std::cout << "answering:\n";
             std::cout << ans << "\n";
             serv.answer_request(ans);
+        }
+        if(recv_bytes==-1){
+            std::cout <<"errno:"<< strerror(errno) << "\n";
         }
     }
     return 0;

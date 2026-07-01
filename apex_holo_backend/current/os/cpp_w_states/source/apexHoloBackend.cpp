@@ -74,7 +74,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
     std::cout << "done\n";
 
     std::cout << "opening reg intf...";
-    axil_reg_intf = static_cast<int*>(
+    axil_reg_intf = static_cast<volatile int*>(
         mmap(NULL,
             axi_reg_info.kernel_size,
             PROT_READ | PROT_WRITE,
@@ -87,7 +87,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
 
     std::cout << "opening twiddle intf...";
     //which is this one! -->
-    axil_bram_intf = static_cast<int*>(
+    axil_bram_intf = static_cast<volatile int*>(
         mmap(NULL,
             axi_bram_info.kernel_size,
             PROT_READ | PROT_WRITE,
@@ -99,7 +99,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
     std::cout << "done\n";
 
     std::cout << "opening snapshot intf...";
-    axil_snapshot_intf = static_cast<int16_t*>(
+    axil_snapshot_intf = static_cast<volatile int16_t*>(
         mmap(NULL,
             axi_snapshot_info.kernel_size,
             PROT_READ | PROT_WRITE,
@@ -111,7 +111,7 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
     std::cout << "done\n";
     
     std::cout << "opening ring buffer...";
-    axil_ring_intf = static_cast<int64_t*>(
+    axil_ring_intf = static_cast<volatile int64_t*>(
         mmap(NULL,
             axi_ring_info.kernel_size,
             PROT_READ | PROT_WRITE,
@@ -130,19 +130,21 @@ apexHoloBackend::apexHoloBackend(const std::string &binfile, const std::string &
     *(axil_reg_intf) = 2;
     std::cout << "done\n";
     //get initial timestamp; TODO:: check what clock should I use!! (high_res, steady, system_clock (?)
-    auto first_stamp = std::chrono::high_resolution_clock::now();       
-    this->initial_stamp.second = *(axil_reg_intf+14);
-    std::chrono::duration<double, std::micro> stamp = first_stamp.time_since_epoch();
-    this->initial_stamp.first = static_cast<uint64_t>(stamp.count());
+    initial_stamp.initial_counter = *(axil_reg_intf+14);
+    initial_stamp.os_time = std::chrono::system_clock::now();
+    //auto first_stamp = std::chrono::high_resolution_clock::now();       
+    //this->initial_stamp.second = *(axil_reg_intf+14);
+    //std::chrono::duration<double, std::micro> stamp = first_stamp.time_since_epoch();
+    //this->initial_stamp.first = static_cast<uint64_t>(stamp.count());
 }
 
 
 
 apexHoloBackend::~apexHoloBackend(){
-    munmap(axil_reg_intf, axi_reg_info.kernel_size);
-    munmap(axil_bram_intf, axi_bram_info.kernel_size);
-    munmap(axil_snapshot_intf, axi_bram_info.kernel_size);
-    munmap(axil_ring_intf, axi_ring_info.kernel_size);
+    munmap((void*) axil_reg_intf, axi_reg_info.kernel_size);
+    munmap((void*) axil_bram_intf, axi_bram_info.kernel_size);
+    munmap((void*) axil_snapshot_intf, axi_bram_info.kernel_size);
+    munmap((void*) axil_ring_intf, axi_ring_info.kernel_size);
     close(mem_fd);
 }
 
@@ -256,11 +258,13 @@ int apexHoloBackend::get_snapshot(std::array<int16_t, SNAPSHOT_SAMPLES> &adc0,
     return 0;
 }
 
-double apexHoloBackend::counter2timestamp(uint64_t curr_counter){
+std::chrono::system_clock::time_point apexHoloBackend::counter2timestamp(uint64_t curr_counter){
     //this returns the timestamp from epoch
-    double ticks = curr_counter-this->initial_stamp.first;
-    double output = this->initial_stamp.second/1e6+(ticks/this->fpga_clock_hz);
-    return output;
+    auto dt = std::chrono::duration<double>((curr_counter - initial_stamp.initial_counter)/static_cast<double>(fpga_clock_hz));
+    return initial_stamp.os_time+ std::chrono::duration_cast<std::chrono::system_clock::duration>(dt);
+    //double ticks = curr_counter-this->initial_stamp.first;
+    //double output = this->initial_stamp.second/1e6+(ticks/this->fpga_clock_hz);
+    //return output;
 }
 
 uint32_t apexHoloBackend::get_ring_buffer_pointer(){
@@ -273,7 +277,10 @@ int apexHoloBackend::get_ring_buffer_data(std::vector<int64_t> &ring_data){
     uint32_t wr_ptr = static_cast<uint32_t>(*(axil_reg_intf+13));
     int unread_data = wr_ptr-this->ring_buffer_read_pointer;
     int index = this->ring_buffer_read_pointer;
-    std::cout << "w_ptr: "<< wr_ptr << " r_ptr: " << ring_buffer_read_pointer << "\n";
+    //std::cout << "w_ptr: "<< wr_ptr << " r_ptr: " << ring_buffer_read_pointer << "\n";
+    //we are going to impose that there are 5 items to read them
+    if((unread_data==0) | (unread_data%5!=0))
+        return 0;
     if(unread_data<0){
         //here we go
         unread_data = (this->ring_limit_addr- index)+wr_ptr;
@@ -283,8 +290,13 @@ int apexHoloBackend::get_ring_buffer_data(std::vector<int64_t> &ring_data){
 
             //here I need the structure of the ring buffer.. that should be the bram if Im not mistake
             ring_data.push_back(static_cast<int64_t>(*(axil_ring_intf+index)));
-            if(index == this->ring_limit_addr)
+            if(index == (this->ring_limit_addr-1)){
                 index = 0;
+                //std::cout << "reach addr limit!"<< ring_limit_addr <<"\n wr_pointer:"<<
+		//	wr_ptr << " r_pointer:"<<ring_buffer_read_pointer << " unread_data:"<< unread_data <<
+		//	" iters: "<<i <<
+		//	"\n\n";
+            }
             else
                 index ++;
         }

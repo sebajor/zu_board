@@ -19,14 +19,21 @@ struct axi_lite_reg {
     int fpga_addr = 0;
 };
 
+
+struct sync_timing {
+    uint64_t initial_counter = 0;
+    std::chrono::system_clock::time_point os_time;
+};
+
+
 class apexHoloBackend{
     private:
         long page_offset {0}, internal_offset {0};
         int mem_fd {-1}; //dev mem file descriptor
-        int* axil_reg_intf {};  //mem-mapped to axilite register
-        int* axil_bram_intf {};
-        int16_t*  axil_snapshot_intf {};
-        int64_t* axil_ring_intf {};
+        volatile int* axil_reg_intf {};  //mem-mapped to axilite register
+        volatile int* axil_bram_intf {};
+        volatile int16_t*  axil_snapshot_intf {};
+        volatile int64_t* axil_ring_intf {};
         axi_lite_reg axi_reg_info {};
         axi_lite_reg axi_bram_info {};
         axi_lite_reg axi_snapshot_info {};
@@ -34,7 +41,8 @@ class apexHoloBackend{
         int ring_buffer_read_pointer {0};
         int ring_limit_addr = RING_MAX_ADDR;
         //CHECK THE DATATYPE OF THE TIMESTAMP!!
-        std::pair<int64_t, int32_t> initial_stamp {};   //the first is the system timestamp in us, is the first value of the counter
+        sync_timing initial_stamp;
+        //std::pair<int64_t, int32_t> initial_stamp {};   //the first is the system timestamp in us, is the first value of the counter
     public:
         apexHoloBackend(const std::string &binfile,const std::string &dev_mem,
                 const axi_lite_reg &axil_reg, const axi_lite_reg &axil_bram,
@@ -67,7 +75,7 @@ class apexHoloBackend{
         //TODO!!!
         uint32_t get_ring_buffer_pointer();
         int get_ring_buffer_data(std::vector<int64_t> &ring_data);
-        double counter2timestamp(uint64_t curr_counter);
+        std::chrono::system_clock::time_point counter2timestamp(uint64_t curr_counter);
 
 
 };

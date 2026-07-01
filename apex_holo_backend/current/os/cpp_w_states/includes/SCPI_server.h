@@ -8,6 +8,7 @@
 #include <mutex>
 #include <thread>
 #include <optional>
+#include <charconv>
 
 enum output_mode {
     COMPLEX,
@@ -15,12 +16,34 @@ enum output_mode {
     AMP_PHASE
 };
 
+enum sys_status {
+  INITIALIZE,
+  SHUTDOWN,
+  DISABLED,
+  ENABLED,
+  FAULTED
+};
+
 struct fpga_parameters {
-    int accumulation =-1;
-    int dft_size = -1;
-    float integration_time = -1;
-    int twiddle_factor =-1;
+    int accumulation =-999;
+    int dft_size = -999;
+    float integration_time = -999;
+    int twiddle_factor =-999;
     float adc_clock = 100*1e6;
+};
+
+
+struct fitsWritterParams {
+    std::string_view encoding = "EEEI";
+    std::string_view beFormat = "F   ";
+    int32_t pkt_len = 80;
+    std::string_view beName = "HOLOBE  ";
+    std::string_view timeSystem ="TAI "; 
+    int32_t integTime_us = 2000;
+    int32_t phaseNum = 1;
+    int32_t numBeSec = 1;
+    int32_t blockFactor = 1;//if larger than 1 assumes equidistant steps
+    int32_t numChannels = 2;
 };
 
 
@@ -29,24 +52,20 @@ class SCPI_server {
         std::optional<apexHoloBackend> fpga;
         int sock {-1};
         int tcp_socket{-1};
-        std::string_view tcp_dest_ip {"10.0.33.133"};
-        int tcp_dest_port {12334};
+        std::string_view tcp_server_ip {"0.0.0.0"}; //check!!!
+        int tcp_server_port {12334};
         sockaddr_in client_addr;
-
-
+        
         axi_lite_reg axi_reg_info {};
         axi_lite_reg axi_bram_info {};
         axi_lite_reg axi_snapshot_info {};
         axi_lite_reg axi_ring_info {};
         std::string fpga_binfile;
         std::string fpga_dev_mem;
-        
-
-        std::atomic<output_mode> mode = AMP_PHASE;
-        std::atomic<bool> stream_running {false};
-        std::atomic<bool> stream_paused {false};
-        std::atomic<bool> thread_alive {false};
         std::thread worker;
+        
+        fitsWritterParams fitsWritterMsgParams;
+        std::atomic<sys_status> state = INITIALIZE;
 
 
     public:
@@ -55,7 +74,8 @@ class SCPI_server {
                 const std::string &binfile,const std::string &dev_mem,
                 const axi_lite_reg &axil_reg, const axi_lite_reg &axil_bram,
                 const axi_lite_reg &snapshot_bram, const axi_lite_reg &axi_ring, 
-                int timeout=-1, int sendsize=1024, int recvsize=1024, int reuse_addr=1);
+                fpga_parameters default_params,
+                int timeout=-1, int sendsize=128, int recvsize=128, int reuse_addr=1);
         ~SCPI_server();
         
         char buffer[2048] {0};
@@ -96,6 +116,15 @@ class SCPI_server {
 
 
 
+        int fitsWritterFormatter(std::string& out_msg, double amp, double phase,
+            std::chrono::system_clock::time_point stamp);
+
+        int fitsWritterTimestamp(std::string &out_msg,
+            std::chrono::system_clock::time_point stamp,
+            std::string_view timeSystem
+        );
+
+
 
 	    int getStatus(std::string_view msg, std::string& out_msg);
 
@@ -107,9 +136,13 @@ class SCPI_server {
         int stop(std::string_view msg, std::string& out_msg);
         int abort(std::string_view msg, std::string& out_msg);
         int reset(std::string_view msg, std::string& out_msg);
-        int state(std::string_view msg, std::string& out_msg);
+        int get_state(std::string_view msg, std::string& out_msg);
         int getUsedChannels(std::string_view msg, std::string& out_msg);
         int setUsedChannels(std::string_view msg, std::string& out_msg);
+        int get_sync_time(std::string_view msg, std::string& out_msg);
+        int set_sync_time(std::string_view msg, std::string& out_msg);
+        int get_blank_time(std::string_view msg, std::string& out_msg);
+        int set_blank_time(std::string_view msg, std::string& out_msg);
         int getNumPhases(std::string_view msg, std::string& out_msg);
         int setNumPhases(std::string_view msg, std::string& out_msg);
         int getMode(std::string_view msg, std::string& out_msg);
@@ -118,9 +151,7 @@ class SCPI_server {
         int setGain(std::string_view msg, std::string& out_msg);
         int getVersion(std::string_view msg, std::string& out_msg);
 
-
         //commands and the corresponden methods
-        //
         using cmdHandler = int(SCPI_server::*)(std::string_view, std::string&);
         std::vector<std::pair<std::string, cmdHandler>> cmds {
             {"APEX:HOLOBE:PROGRAM_FPGA", &SCPI_server::program_fpga},
@@ -153,31 +184,53 @@ class SCPI_server {
             {"APEX:HOLOBE:stop", &SCPI_server::stop},
             {"APEX:HOLOBE:abort", &SCPI_server::abort},
             {"APEX:HOLOBE:reset", &SCPI_server::reset},
-            {"APEX:HOLOBE:state?", &SCPI_server::state},
+            {"APEX:HOLOBE:state?", &SCPI_server::get_state},
+
             {"APEX:HOLOBE:integrationTime?", &SCPI_server::get_integration_time},
+            {"APEX:HOLOBE:cmdIntegrationTime?", &SCPI_server::get_integration_time},
             {"APEX:HOLOBE:cmdIntegrationTime", &SCPI_server::set_integration_time},
             {"APEX:HOLOBE:usedChannels?", &SCPI_server::getUsedChannels},
+            {"APEX:HOLOBE:cmdUsedChannels?", &SCPI_server::getUsedChannels},
             {"APEX:HOLOBE:cmdUsedChannels", &SCPI_server::setUsedChannels},
+
+            {"APEX:HOLOBE:syncTime?", &SCPI_server::get_sync_time},
+            {"APEX:HOLOBE:cmdSyncTime?", &SCPI_server::get_sync_time},
+            {"APEX:HOLOBE:cmdSyncTime", &SCPI_server::set_sync_time},
+            {"APEX:HOLOBE:blankTime?", &SCPI_server::get_blank_time},
+            {"APEX:HOLOBE:cmdBlankTime?", &SCPI_server::get_blank_time},
+            {"APEX:HOLOBE:cmdBlankTime", &SCPI_server::set_blank_time},
+
+
             {"APEX:HOLOBE:numPhases?", &SCPI_server::getNumPhases},
+            {"APEX:HOLOBE:cmdNumPhases?", &SCPI_server::getNumPhases},
             {"APEX:HOLOBE:cmdNumPhases", &SCPI_server::setNumPhases},
             {"APEX:HOLOBE:mode?", &SCPI_server::getMode},
+            {"APEX:HOLOBE:cmdMode?", &SCPI_server::getMode},
             {"APEX:HOLOBE:cmdMode", &SCPI_server::setMode},
             {"APEX:HOLOBE:gain?", &SCPI_server::getGain},
+            {"APEX:HOLOBE:cmdGain?", &SCPI_server::getGain},
             {"APEX:HOLOBE:cmdGain", &SCPI_server::setGain},
             {"APEX:HOLOBE:version?", &SCPI_server::getVersion},
-
-
-
-
-
         };
-
-
-
 };
 
 
 int get_int_value_from_msg(std::string &msg);
+
+template <typename T>
+int get_value_from_msg(std::string_view &msg, T& value){
+    size_t space = msg.find(" ");
+    if(space!= std::string_view::npos){
+        std::string_view s_arg = msg.substr(space+1);
+        auto result = std::from_chars(s_arg.data(), s_arg.data()+s_arg.size(), value);
+        if(result.ec != std::errc{}){
+            return -1;
+        }
+        return 0;
+    }
+    else
+        return -1;
+}
 
 
 

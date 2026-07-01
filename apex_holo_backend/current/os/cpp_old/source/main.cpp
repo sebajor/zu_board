@@ -12,7 +12,7 @@ int main(){
     std::string_view scpi_host {"0.0.0.0"};
 
     int tcp_port {12334};
-    std::string_view tcp_ip {"10.0.6.163"};
+    std::string_view tcp_ip {"10.0.33.133"};
     
     int offset = 0xA0008000;
     axi_lite_reg axi_reg_info {

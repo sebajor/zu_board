@@ -38,8 +38,6 @@ SCPI_server::SCPI_server(std::string_view host, int port,
     std::cout << "done\n";
     fpga_binfile = bin_file;
     fpga_dev_mem = dev_mem;
-    tcp_dest_ip = tcp_ip;
-    tcp_dest_port = tcp_dest_port;
 
     axi_reg_info = axil_reg;    
     axi_bram_info = axil_bram;
@@ -75,14 +73,13 @@ void SCPI_server::workerLoop(){
     double aa, bb, ab_re, ab_im, counter {0};
 
     tcp_socket = TcpSocket::socket_config(tcp_socket);      //here I should also modify the default buffers and stuff...
-    std::cout << "Connecting to ("<< tcp_dest_ip << ","<< tcp_dest_port << ")\n";
     int conn = TcpSocket::connectSocket(tcp_socket, tcp_dest_ip, tcp_dest_port);
-    std::cout << "tcp connection output: "<< conn << "\n";
     if(conn == -1){
         TcpSocket::closeSocket(tcp_socket);
         thread_alive = false;
         return;
     }
+    std::cout << "tcp connection output: "<< conn << "\n";
     thread_alive = true;
     int ret_val {0};
     //enable the correlator
@@ -101,22 +98,14 @@ void SCPI_server::workerLoop(){
     fpga->enable_correlator();
     while(stream_running.load()){
         fpga->get_ring_buffer_data(raw_data);
-        std::cout << "raw_data vector size: " << raw_data.size() << "\n"
         if(raw_data.size()!=0){
-            //debug
-            std::cout << "raw_data available:\n"
-            for(uint32_t i=0; i< raw_data.size(); ++i){
-               std::cout << raw_data[i] << "\t";
-            }
-            std::cout << "\n";
-            //debug
             switch (mode.load()) {
                 case COMPLEX:
                     break;
                 case RAW:{
                     auto stamp_clock = std::chrono::high_resolution_clock::now();   //if there is more than one then Im in problems...
                     std::chrono::duration<double, std::micro> stamp = stamp_clock.time_since_epoch();
-                    data.push_back(stamp.count()/1e6);
+                    data.push_back(stamp.count());
                     for(int i=0; i<raw_data.size()/5; ++i){
                         counter =raw_data.back();
                         raw_data.pop_back();
@@ -139,7 +128,7 @@ void SCPI_server::workerLoop(){
                     for(int i=0; i<raw_data.size()/5; ++i){
                         auto stamp_clock = std::chrono::high_resolution_clock::now();   //if there is more than one then Im in problems...
                         std::chrono::duration<double, std::micro> stamp = stamp_clock.time_since_epoch();
-                        data.push_back(stamp.count()/1e6);
+                        data.push_back(stamp.count());
                         counter =raw_data.back();
                         raw_data.pop_back();
                         ab_im = raw_data.back();
@@ -152,18 +141,14 @@ void SCPI_server::workerLoop(){
                         raw_data.pop_back();
                         data.push_back(std::sqrt(aa/bb));
                         data.push_back(std::atan2(ab_im, ab_re));
-                        //debug
-                        std::cout << "pow: " << std::sqrt(aa/bb) <<
-                            "\tphase: "<< std::atan2(ab_im, ab_re);
-                        //debug
                     }
                     break;
-                        }
+                                }
                 default:{
                     for(int i=0; i<raw_data.size()/5; ++i){
                         auto stamp_clock = std::chrono::high_resolution_clock::now();   //if there is more than one then Im in problems...
                         std::chrono::duration<double, std::micro> stamp = stamp_clock.time_since_epoch();
-                        data.push_back(stamp.count())/1e6;
+                        data.push_back(stamp.count());
                         counter =raw_data.back();
                         raw_data.pop_back();
                         ab_im = raw_data.back();
@@ -176,10 +161,6 @@ void SCPI_server::workerLoop(){
                         raw_data.pop_back();
                         data.push_back(std::sqrt(aa/bb));
                         data.push_back(std::atan2(ab_im, ab_re));
-                        //debug
-                        std::cout << "pow: " << std::sqrt(aa/bb) <<
-                            "\tphase: "<< std::atan2(ab_im, ab_re);
-                        //debug
                     }
                     break;
                         }
@@ -187,7 +168,6 @@ void SCPI_server::workerLoop(){
 
 
             if(!stream_paused.load()){
-                //std::cout << "sendign data size"<<data.size() <<"\n";
                 ret_val = TcpSocket::sendVectorData(tcp_socket, data);
                 data.clear();
                 if(ret_val<0){
@@ -202,6 +182,7 @@ void SCPI_server::workerLoop(){
                             return;
                         }
                 }
+
             }
 
         }
@@ -287,8 +268,8 @@ int SCPI_server::program_fpga(std::string_view msg, std::string& out_msg){
             axi_ring_info
             );
     if(fpga)
-        //out_msg = msg + "OK";
-        out_msg += "OK";
+        //out_msg = msg + " OK";
+        out_msg += " OK";
     SCPI_server::addTimestampAnswer(out_msg);
     return 0;   
 }
@@ -392,7 +373,7 @@ int SCPI_server::set_twiddle_factor(std::string_view msg, std::string& out_msg){
         }
     }
     else{
-        //out_msg = msg + "ERROR:STREAMING ON";
+        //out_msg = msg + " ERROR:STREAMING ON";
         out_msg += "ERROR:STREAMING ON";
         SCPI_server::addTimestampAnswer(out_msg);
         return -1;
@@ -454,7 +435,7 @@ int SCPI_server::start_data_streaming(std::string_view msg, std::string& out_msg
             return 0;
         }
         else{
-            out_msg += "STREAM ALREADY RUNNING";
+            out_msg += "STREAM ALREADY RUNNING\n";
             SCPI_server::addTimestampAnswer(out_msg);
             return -1;
         }
@@ -469,19 +450,19 @@ int SCPI_server::start_data_streaming(std::string_view msg, std::string& out_msg
 int SCPI_server::pause_data_streaming(std::string_view msg, std::string& out_msg){
     if(stream_running.load()){
         if(stream_paused.load()){
-            out_msg += "STREAM ALREADY PAUSED";
+            out_msg += "STREAM ALREADY PAUSED\n";
             SCPI_server::addTimestampAnswer(out_msg);
             return 0;
         }
         else{
-            out_msg += "OK";
+            out_msg += "OK\n";
             SCPI_server::addTimestampAnswer(out_msg);
             stream_paused = true;
             return 0;
         }
     }
     else{
-        out_msg += "STREAM IS NOT INITIATED";
+        out_msg += "STREAM IS NOT INITIATED\n";
         SCPI_server::addTimestampAnswer(out_msg);
         return -1;
     }
@@ -497,13 +478,13 @@ int SCPI_server::resume_data_streaming(std::string_view msg, std::string& out_ms
             return 0;
         }
         else{
-            out_msg += "STREAM ALREADY RESUMED";
+            out_msg += "STREAM ALREADY RESUMED\n";
             SCPI_server::addTimestampAnswer(out_msg);
             return 0;
         }
     }
     else{
-        out_msg += "STREAM IS NOT INITIATED";
+        out_msg += "STREAM IS NOT INITIATED\n";
         SCPI_server::addTimestampAnswer(out_msg);
         return -1;
     }
@@ -519,228 +500,20 @@ int SCPI_server::stop_data_streaming(std::string_view msg, std::string& out_msg)
         return 0;
     }
     else{
-        out_msg = "STREAM IS NOT INITIATED";
+        out_msg = "STREAM IS NOT INITIATED\n";
         SCPI_server::addTimestampAnswer(out_msg);
         return -1;
     }
 }
 
 
-
-int SCPI_server::setDestStreamIP(std::string_view input_data, std::string& out_msg){
-    size_t space = input_data.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = input_data.substr(space+1);
-        //now I should review that this follows the standard ip format
-        size_t end_str = s_arg.find("\n");
-        if(end_str!= std::string::npos){
-            s_arg = s_arg.substr(0, end_str);
-        }
-        //std::cout << "test: " << std::to_string(end_str) <<"\n";
-        //std::cout << "test2: " << s_arg.substr(0, end_str) << "\n";
-        tcp_dest_ip = s_arg;    //I need to check if it has \n at the end!
-        std::cout << "new TPC ip " << tcp_dest_ip <<"\n";
-        out_msg += "OK";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return 0;
-    }
-    else{
-        out_msg += "ERROR";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return -1;
-    }
-}
-
-int SCPI_server::getDestStreamIP(std::string_view msg, std::string& out_msg){
-    out_msg += tcp_dest_ip;
-    SCPI_server::addTimestampAnswer(out_msg);
+int SCPI_server::setDestStreamIP(std::string_view msg, std::string& out_msg){
     return 0;
 }
 
 
-int SCPI_server::setDestStreamPort(std::string_view input_data, std::string& out_msg){
-    size_t space = input_data.find(" ");
-    if(space!= std::string_view::npos){
-        std::string_view s_arg = input_data.substr(space+1);
-        float arg;
-        auto result = std::from_chars(s_arg.data(), s_arg.data()+s_arg.size(), arg);
-        if(result.ec != std::errc{}){
-            out_msg += "ERROR";
-            SCPI_server::addTimestampAnswer(out_msg);
-            return 1;
-        }
-        tcp_dest_port= arg;
-        out_msg += "Ok";
-        SCPI_server::addTimestampAnswer(out_msg);
-    }
-    return 0;
-}
-
-int SCPI_server::getDestStreamPort(std::string_view msg, std::string& out_msg){
-    out_msg += std::to_string(tcp_dest_port);
-    SCPI_server::addTimestampAnswer(out_msg);
+int SCPI_server::setDestStreamPort(std::string_view msg, std::string& out_msg){
     return 0;
 }
 
 
-int SCPI_server::getStatus(std::string_view msg, std::string& out_msg){
-    if(! thread_alive.load())
-        out_msg += "NOT_STREAMING";
-    else{
-        if(stream_paused.load())
-            out_msg += "PAUSED";
-        else
-            out_msg += "STREAMING";
-    }
-
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-
-
-
-
-int SCPI_server::on(std::string_view msg, std::string out_msg){
-}
-int SCPI_server::off(std::string_view msg, std::string out_msg){
-}
-
-2int SCPI_server::configure(std::string_view msg, std::string out_msg){
-    //Check if we are running the streaming thread, if so kill it
-    std::cout << "killing the streaming thread (if alive)...";
-    if(stream_running.load()){
-        stream_running = false;
-        if(worker.joinable())
-            worker.join();
-    }
-    std::cout << "done\n";
-    //check if the fpga is programmed.. if not program it
-    std::cout << "programming FPGA...";
-    if(fpga)
-        fpga.reset();
-    fpga.emplace(
-        fpga_binfile,
-        fpga_dev_mem,
-        axi_reg_info,
-        axi_bram_info,
-        axi_snapshot_info,
-        axi_ring_info
-        );
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    std::cout << "done\n";
-    std::cout << "setting dft size..";
-    if(fpga->set_dft_len(fpga_params.dft_size)){
-        out_msg += "ERROR";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return -1;
-    }
-    std::cout << "done\n";
-    std::cout << "setting accumulation..";
-    if(fpga->set_accumulation(fpga_params.accumulation)){
-        out_msg += "ERROR";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return -1;
-    }
-    std::cout << "done\n"
-    std::cout << "uploading twiddle factor..";
-    if(fpga->set_upload_twiddle_factors(fpga_params->twiddle_factor, 14)){
-        out_msg += "ERROR";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return -1;
-    }
-    std::cout << "done\n";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-int SCPI_server::start(std::string_view msg, std::string out_msg){
-    if(stream_runnning.load()){
-        if(stream_paused.load(){
-            stream_pause = false;
-                }
-        out_msg += "Ok";
-        SCPI_server::addTimestampAnswer(out_msg);
-        return 0:
-    }
-    stream_running = true;
-    out_msg += "Ok";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-
-int SCPI_server::stop(std::string_view msg, std::string out_msg){
-
-}
-
-int SCPI_server::abort(std::string_view msg, std::string out_msg)|{
-
-}
-
-int SCPI_server::reset(std::string_view msg, std::string out_msg){
-    return SCPI_server::configure(msg, out_msg);
-}
-
-
-
-int SCPI_server::state(std::string_view msg, std::string out_msg){
-    //this can be INITIALIZE, SHUTDOWN, DISABLED, ENABLED, FAULTED
-}
-int SCPI_server::get_integration_time(std::string_view msg, std::string out_msg){
-}
-int SCPI_server::set_integration_time(std::string_view msg, std::string out_msg){
-}
-
-
-
-int SCPI_server::getUsedChannels(std::string_view msg, std::string out_msg){
-    out_msg += "1 1";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-int SCPI_server::setUsedChannels(std::string_view msg, std::string out_msg){
-    //we only have one channel.. so dont 
-    out_msg += "Ok";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-int SCPI_server::getNumPhases(std::string_view msg, std::string out_msg){
-    out_msg += "1";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-int SCPI_server::setNumPhases(std::string_view msg, std::string out_msg){
-    out_msg += "Ok";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-int SCPI_server::getMode(std::string_view msg, std::string out_msg){
-    out_msg += "INTERNAL";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-
-int SCPI_server::setMode(std::string_view msg, std::string out_msg){
-    //always will be internal..so just put ok
-    out_msg += "Ok";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-int SCPI_server::getGain(std::string_view msg, std::string out_msg){
-    out_msg'+= "-999";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-int SCPI_server::setGain(std::string_view msg, std::string out_msg){
-    out_msg += "Ok";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}
-int SCPI_server::getVersion(std::string_view msg, std::string out_msg){
-    out_msg += "0.1";
-    SCPI_server::addTimestampAnswer(out_msg);
-    return 0;
-}

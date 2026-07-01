@@ -273,7 +273,6 @@ int apexHoloBackend::get_ring_buffer_data(std::vector<int64_t> &ring_data){
     uint32_t wr_ptr = static_cast<uint32_t>(*(axil_reg_intf+13));
     int unread_data = wr_ptr-this->ring_buffer_read_pointer;
     int index = this->ring_buffer_read_pointer;
-    std::cout << "w_ptr: "<< wr_ptr << " r_ptr: " << ring_buffer_read_pointer << "\n";
     if(unread_data<0){
         //here we go
         unread_data = (this->ring_limit_addr- index)+wr_ptr;

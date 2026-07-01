@@ -1,8 +1,8 @@
 #include <string>
 #include <arpa/inet.h>
 #include <vector>
-#include <iostream>
 #include <array>
+#include <iostream>
 
 namespace TcpSocket{
 int socket_config(int sock=-1, int sndsize=128, int recvsize=128,
@@ -18,7 +18,7 @@ int bindListenSocket(int sock_fd, std::string_view ip, int port, int backlog=32)
 
 int acceptConnection(int sock_fd, sockaddr &client_addr);
 
-int closeSocket(int sock_fd);
+int closeSocket(int &sock_fd);
 
 
 int sendBytes(int sock_fd, const void* data, size_t nbytes);

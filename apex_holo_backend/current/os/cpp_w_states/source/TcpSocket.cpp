@@ -100,8 +100,11 @@ int connectSocket(int sock_fd, std::string_view host, int port){
 
 int bindListenSocket(int sock_fd, std::string_view ip, int port, int backlog){
     sockaddr_in address {};
-    if(inet_pton(AF_INET, ip.data(), &(address.sin_addr))){
+    if(ip == "0.0.0.0")
+        address.sin_addr.s_addr = htonl(INADDR_ANY);
+    else if(inet_pton(AF_INET, ip.data(), &(address.sin_addr))<0){
         std::cout << "Error getting address\n";
+
         return -1;
     }
     address.sin_family = AF_INET;
@@ -126,11 +129,12 @@ int acceptConnection(int sock_fd, sockaddr &client_addr){
     return client_sock;
 }
 
-int closeSocket(int sock_fd){
+int closeSocket(int &sock_fd){
     std::cout << "destroying the socket "<< sock_fd <<std::endl;
     if(sock_fd!= -1){
-        shutdown(sock_fd, SHUT_RD);
+        shutdown(sock_fd, SHUT_RDWR);
         close(sock_fd);
+        sock_fd = -1;
     }
     return 0;
 }
@@ -143,7 +147,8 @@ int sendBytes(int sock_fd, const void* data, size_t nbytes){
     ssize_t sent_stream {0};
 
     while(sent_bytes < nbytes){
-        sent_stream = send(sock_fd, ptr+sent_bytes, nbytes-sent_bytes,0);
+        sent_stream = send(sock_fd, ptr+sent_bytes, nbytes-sent_bytes,MSG_NOSIGNAL);    //to catch when the client disconnects, and not just get broken pipe signal
+        //sent_stream = send(sock_fd, ptr+sent_bytes, nbytes-sent_bytes,0);
         if(sent_stream <=0)
             return -1;
         sent_bytes += sent_stream;
